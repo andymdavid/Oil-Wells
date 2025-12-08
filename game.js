@@ -1,0 +1,931 @@
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+let lastTime = 0;
+
+/**
+ * A GameState should implement:
+ * - update(dt)
+ * - render(ctx)
+ * - onKeyDown(event) // optional, for handling input
+ */
+class Level {
+  constructor(canvasWidth, canvasHeight) {
+    this.tileSize = 32;
+    const rawMap = [
+      "########################",
+      "#..........O....O.....##",
+      "#.####################.#",
+      "#..O......E....O....O..#",
+      "##.##################..#",
+      "#..O..O.......E....O..##",
+      "#.####################.#",
+      "#..O......O....O....O..#",
+      "##.##################..#",
+      "#..O..O.......O....O..##",
+      "########################",
+      "#......................#",
+      "#......................#",
+      "########################",
+      "#......................#",
+      "########################",
+    ];
+
+    this.tiles = rawMap.map((row) => row.split(""));
+    this.height = this.tiles.length;
+    this.width = this.tiles[0].length;
+    this.carveVerticalShafts([3, 10, 15, 20], [2, 4, 6, 8, 10, 13]);
+
+    const gridWidth = this.width * this.tileSize;
+    const gridHeight = this.height * this.tileSize;
+    this.offsetX = Math.max(0, Math.floor((canvasWidth - gridWidth) / 2));
+    this.offsetY = Math.max(0, Math.floor((canvasHeight - gridHeight) / 2));
+
+    this.pelletCount = 0;
+    this.enemySpawns = [];
+    for (let y = 0; y < this.height; y += 1) {
+      for (let x = 0; x < this.width; x += 1) {
+        const tile = this.tiles[y][x];
+        if (tile === "O") {
+          this.pelletCount += 1;
+        } else if (tile === "E") {
+          this.enemySpawns.push({ x, y });
+          this.tiles[y][x] = ".";
+        }
+      }
+    }
+
+    this.entryTile = this.findEntryTile();
+    const entryCenter = this.tileToPixelCenter(this.entryTile.x, this.entryTile.y);
+    this.wellPosition = {
+      x: entryCenter.x,
+      y: entryCenter.y - this.tileSize * 1.5,
+    };
+  }
+
+  carveVerticalShafts(columns, rows) {
+    for (const row of rows) {
+      if (row <= 0 || row >= this.height - 1) {
+        continue;
+      }
+      for (const col of columns) {
+        if (col <= 0 || col >= this.width - 1) {
+          continue;
+        }
+        this.tiles[row][col] = ".";
+      }
+    }
+  }
+
+  findEntryTile() {
+    const topRow = 1;
+    const centerCol = Math.floor(this.width / 2);
+    for (let offset = 0; offset < this.width; offset += 1) {
+      const left = centerCol - offset;
+      if (left >= 0 && this.tiles[topRow][left] !== "#") {
+        return { x: left, y: topRow };
+      }
+      const right = centerCol + offset;
+      if (right < this.width && this.tiles[topRow][right] !== "#") {
+        return { x: right, y: topRow };
+      }
+    }
+    return { x: 1, y: topRow };
+  }
+
+  tileToPixelCenter(tileX, tileY) {
+    const x = this.offsetX + tileX * this.tileSize + this.tileSize / 2;
+    const y = this.offsetY + tileY * this.tileSize + this.tileSize / 2;
+    return { x, y };
+  }
+
+  getTile(tx, ty) {
+    if (ty < 0 || ty >= this.height || tx < 0 || tx >= this.width) {
+      return null;
+    }
+    return this.tiles[ty][tx];
+  }
+
+  getTileAtPixel(x, y) {
+    const tx = Math.floor((x - this.offsetX) / this.tileSize);
+    const ty = Math.floor((y - this.offsetY) / this.tileSize);
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) {
+      return null;
+    }
+    return this.tiles[ty][tx];
+  }
+
+  pixelToTile(x, y) {
+    const tx = Math.floor((x - this.offsetX) / this.tileSize);
+    const ty = Math.floor((y - this.offsetY) / this.tileSize);
+    if (tx < 0 || ty < 0 || tx >= this.width || ty >= this.height) {
+      return null;
+    }
+    return { x: tx, y: ty };
+  }
+
+  isTunnelTile(tile) {
+    return tile === "." || tile === "O";
+  }
+
+  isTunnelAtPixel(x, y) {
+    const tile = this.getTileAtPixel(x, y);
+    return tile ? this.isTunnelTile(tile) : false;
+  }
+
+  removePelletAtTile(tx, ty) {
+    if (ty < 0 || ty >= this.height || tx < 0 || tx >= this.width) {
+      return false;
+    }
+    if (this.tiles[ty][tx] === "O") {
+      this.tiles[ty][tx] = ".";
+      this.pelletCount = Math.max(0, this.pelletCount - 1);
+      return true;
+    }
+    return false;
+  }
+
+  hasPelletsRemaining() {
+    return this.pelletCount > 0;
+  }
+
+  getEnemySpawnPositions() {
+    return this.enemySpawns.map(({ x, y }) => this.tileToPixelCenter(x, y));
+  }
+
+  getEntryTile() {
+    return { ...this.entryTile };
+  }
+
+  getWellPosition() {
+    return { ...this.wellPosition };
+  }
+
+  render(ctx) {
+    for (let y = 0; y < this.height; y += 1) {
+      for (let x = 0; x < this.width; x += 1) {
+        const tile = this.tiles[y][x];
+        const px = this.offsetX + x * this.tileSize;
+        const py = this.offsetY + y * this.tileSize;
+
+        if (tile === "#") {
+          ctx.fillStyle = "#1f1b24";
+          ctx.fillRect(px, py, this.tileSize, this.tileSize);
+        } else {
+          ctx.fillStyle = "#3b312c";
+          ctx.fillRect(px, py, this.tileSize, this.tileSize);
+
+          if (tile === "O") {
+            ctx.beginPath();
+            ctx.arc(
+              px + this.tileSize / 2,
+              py + this.tileSize / 2,
+              this.tileSize * 0.15,
+              0,
+              Math.PI * 2
+            );
+            ctx.fillStyle = "#f2d16b";
+            ctx.fill();
+          }
+        }
+      }
+    }
+  }
+}
+
+class Drill {
+  constructor(level, wellPosition, entryTile, onPelletCollected) {
+    this.level = level;
+    this.wellPosition = { ...wellPosition };
+    this.entryTile = { ...entryTile };
+    this.x = wellPosition.x;
+    this.y = wellPosition.y;
+    this.onPelletCollected = onPelletCollected;
+    this.speed = 200;
+    this.radius = level.tileSize * 0.3;
+    this.color = "#ff914d";
+    this.outline = "#351a0f";
+    this.pipePoints = [{ x: this.x, y: this.y }];
+    this.currentTileX = entryTile.x;
+    this.currentTileY = entryTile.y;
+    this.dirX = 0;
+    this.dirY = 0;
+    this.intentDirX = 0;
+    this.intentDirY = 0;
+    this.pendingDirX = 0;
+    this.pendingDirY = 0;
+    this.destinationTile = null;
+    this.isRetracting = false;
+    this.retractSpeed = this.speed * 2;
+  }
+
+  setDirection(dx, dy) {
+    if (this.isRetracting) {
+      return;
+    }
+    this.intentDirX = dx;
+    this.intentDirY = dy;
+    this.pendingDirX = dx;
+    this.pendingDirY = dy;
+  }
+
+  startRetract() {
+    if (this.pipePoints.length <= 1) {
+      return;
+    }
+    this.isRetracting = true;
+    this.dirX = 0;
+    this.dirY = 0;
+    this.pendingDirX = 0;
+    this.pendingDirY = 0;
+    this.intentDirX = 0;
+    this.intentDirY = 0;
+    this.destinationTile = null;
+    this.updateHeadPipePoint();
+  }
+
+  stopRetract() {
+    if (!this.isRetracting) {
+      return;
+    }
+    this.isRetracting = false;
+    this.updateHeadPipePoint();
+    this.syncCurrentTile();
+  }
+
+  update(dt) {
+    if (this.isRetracting) {
+      this.retractAlongPipe(dt);
+      return;
+    }
+    const center = this.getCurrentTileCenter();
+    if (center) {
+      this.snapToCenterIfClose(center);
+      this.handleInitialDrop(center);
+      this.lockPerpendicularAxis(center);
+    }
+
+    if (!this.destinationTile && center) {
+      if (!this.tryApplyPendingDirection()) {
+        this.tryContinueForward();
+      }
+    }
+
+    if (!this.destinationTile) {
+      return;
+    }
+
+    this.advanceTowardDestination(dt);
+    this.trackPipeProgress();
+    this.checkPelletCollection();
+  }
+
+  retractAlongPipe(dt) {
+    if (this.pipePoints.length <= 1) {
+      const anchor = this.pipePoints[0] || { x: this.x, y: this.y };
+      this.x = anchor.x;
+      this.y = anchor.y;
+      this.updateHeadPipePoint();
+      this.syncCurrentTile();
+      this.currentTileX = this.entryTile.x;
+      this.currentTileY = this.entryTile.y;
+      this.isRetracting = false;
+      return;
+    }
+
+    const targetIndex = this.pipePoints.length - 2;
+    const target = this.pipePoints[targetIndex];
+    const dx = target.x - this.x;
+    const dy = target.y - this.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    const maxStep = this.retractSpeed * dt;
+
+    if (dist <= maxStep) {
+      this.x = target.x;
+      this.y = target.y;
+      this.pipePoints.pop();
+      this.updateHeadPipePoint();
+      this.syncCurrentTile();
+      if (this.pipePoints.length === 1) {
+        this.isRetracting = false;
+        this.currentTileX = this.entryTile.x;
+        this.currentTileY = this.entryTile.y;
+      }
+      return;
+    }
+
+    this.x += (dx / dist) * maxStep;
+    this.y += (dy / dist) * maxStep;
+    this.updateHeadPipePoint();
+    this.syncCurrentTile();
+  }
+
+  checkPelletCollection() {
+    const tileCoords = this.level.pixelToTile(this.x, this.y);
+    if (!tileCoords) {
+      return;
+    }
+    const { x: tileX, y: tileY } = tileCoords;
+    if (this.level.removePelletAtTile(tileX, tileY) && this.onPelletCollected) {
+      this.onPelletCollected(tileX, tileY);
+    }
+  }
+
+  trackPipeProgress() {
+    const tileCoords = this.level.pixelToTile(this.x, this.y);
+    if (!tileCoords) {
+      this.updateHeadPipePoint();
+      return;
+    }
+
+    const { x: tileX, y: tileY } = tileCoords;
+    if (tileX === this.currentTileX && tileY === this.currentTileY) {
+      this.updateHeadPipePoint();
+      return;
+    }
+
+    this.currentTileX = tileX;
+    this.currentTileY = tileY;
+    const center = this.level.tileToPixelCenter(tileX, tileY);
+    if (this.pipePoints.length === 0) {
+      this.pipePoints.push(center);
+      this.pipePoints.push({ x: this.x, y: this.y });
+      return;
+    }
+
+    if (this.pipePoints.length === 1) {
+      this.pipePoints.push(center);
+      this.pipePoints.push({ x: this.x, y: this.y });
+      return;
+    }
+
+    this.pipePoints[this.pipePoints.length - 1] = center;
+    this.pipePoints.push({ x: this.x, y: this.y });
+  }
+
+  updateHeadPipePoint() {
+    const headPoint = { x: this.x, y: this.y };
+    if (this.pipePoints.length === 0) {
+      this.pipePoints.push(headPoint);
+      return;
+    }
+    this.pipePoints[this.pipePoints.length - 1] = headPoint;
+  }
+
+  syncCurrentTile() {
+    const tileCoords = this.level.pixelToTile(this.x, this.y);
+    if (tileCoords) {
+      this.currentTileX = tileCoords.x;
+      this.currentTileY = tileCoords.y;
+    }
+  }
+
+  getCurrentTileCenter() {
+    if (
+      typeof this.currentTileX !== "number" ||
+      typeof this.currentTileY !== "number"
+    ) {
+      return this.level.tileToPixelCenter(this.entryTile.x, this.entryTile.y);
+    }
+    return this.level.tileToPixelCenter(this.currentTileX, this.currentTileY);
+  }
+
+  snapToCenterIfClose(center) {
+    const dx = center.x - this.x;
+    const dy = center.y - this.y;
+    if (Math.hypot(dx, dy) <= 1) {
+      this.x = center.x;
+      this.y = center.y;
+      if (!this.destinationTile) {
+        this.dirX = 0;
+        this.dirY = 0;
+      }
+    }
+  }
+
+  handleInitialDrop(center) {
+    if (this.destinationTile || this.dirX !== 0 || this.dirY !== 0) {
+      return;
+    }
+    const wantsDown = this.pendingDirY === 1 || this.intentDirY === 1;
+    if (!wantsDown) {
+      return;
+    }
+    if (center.y - this.y > 1) {
+      this.dirX = 0;
+      this.dirY = 1;
+      this.destinationTile = { x: this.currentTileX, y: this.currentTileY };
+      this.pendingDirX = 0;
+      this.pendingDirY = 0;
+    }
+  }
+
+  lockPerpendicularAxis(center) {
+    if (!center) {
+      return;
+    }
+    if (this.dirX !== 0) {
+      this.y = center.y;
+    } else if (this.dirY !== 0) {
+      this.x = center.x;
+    }
+  }
+
+  tryApplyPendingDirection() {
+    if (this.pendingDirX === 0 && this.pendingDirY === 0) {
+      return false;
+    }
+    const applied = this.trySetDirection(this.pendingDirX, this.pendingDirY);
+    if (applied) {
+      this.pendingDirX = 0;
+      this.pendingDirY = 0;
+    }
+    return applied;
+  }
+
+  tryContinueForward() {
+    if (this.intentDirX === 0 && this.intentDirY === 0) {
+      return false;
+    }
+    return this.trySetDirection(this.intentDirX, this.intentDirY);
+  }
+
+  trySetDirection(dx, dy) {
+    if (dx === 0 && dy === 0) {
+      return false;
+    }
+    if (this.destinationTile) {
+      return false;
+    }
+    const targetTileX = this.currentTileX + dx;
+    const targetTileY = this.currentTileY + dy;
+    const tile = this.level.getTile(targetTileX, targetTileY);
+    if (!tile || !this.level.isTunnelTile(tile)) {
+      return false;
+    }
+    this.dirX = dx;
+    this.dirY = dy;
+    this.destinationTile = { x: targetTileX, y: targetTileY };
+    return true;
+  }
+
+  advanceTowardDestination(dt) {
+    if (!this.destinationTile) {
+      return;
+    }
+    const destCenter = this.level.tileToPixelCenter(
+      this.destinationTile.x,
+      this.destinationTile.y
+    );
+    const moveDist = this.speed * dt;
+    const dx = destCenter.x - this.x;
+    const dy = destCenter.y - this.y;
+    const distanceToDest = Math.hypot(dx, dy);
+
+    if (distanceToDest <= moveDist) {
+      this.x = destCenter.x;
+      this.y = destCenter.y;
+      this.currentTileX = this.destinationTile.x;
+      this.currentTileY = this.destinationTile.y;
+      this.destinationTile = null;
+      this.dirX = 0;
+      this.dirY = 0;
+      if (!this.tryApplyPendingDirection()) {
+        this.tryContinueForward();
+      }
+      return;
+    }
+
+    if (this.dirX !== 0) {
+      this.x += this.dirX * moveDist;
+      const rowCenter = this.level.tileToPixelCenter(
+        this.currentTileX,
+        this.currentTileY
+      ).y;
+      this.y = rowCenter;
+    } else if (this.dirY !== 0) {
+      this.y += this.dirY * moveDist;
+      const colCenter = this.level.tileToPixelCenter(
+        this.currentTileX,
+        this.currentTileY
+      ).x;
+      this.x = colCenter;
+    }
+  }
+
+  renderPipe(ctx) {
+    if (this.pipePoints.length < 1) {
+      return;
+    }
+
+    ctx.beginPath();
+    const first = this.pipePoints[0];
+    ctx.moveTo(first.x, first.y);
+    for (let i = 1; i < this.pipePoints.length; i += 1) {
+      const point = this.pipePoints[i];
+      ctx.lineTo(point.x, point.y);
+    }
+    const lastPoint = this.pipePoints[this.pipePoints.length - 1];
+    if (lastPoint.x !== this.x || lastPoint.y !== this.y) {
+      ctx.lineTo(this.x, this.y);
+    }
+    ctx.lineWidth = 8;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#f7b267";
+    ctx.stroke();
+  }
+
+  render(ctx) {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = this.outline;
+    ctx.stroke();
+  }
+}
+
+class Enemy {
+  constructor(level, x, y, dirX = 1, dirY = 0, speed = 90) {
+    this.level = level;
+    this.x = x;
+    this.y = y;
+    this.dirX = dirX;
+    this.dirY = dirY;
+    this.speed = speed;
+    this.radius = Math.max(8, level.tileSize * 0.25);
+    this.spawn = { x, y, dirX, dirY, speed };
+    this.color = "#ff4d6d";
+  }
+
+  update(dt) {
+    const nextX = this.x + this.dirX * this.speed * dt;
+    const nextY = this.y + this.dirY * this.speed * dt;
+    if (this.level.isTunnelAtPixel(nextX, nextY)) {
+      this.x = nextX;
+      this.y = nextY;
+    } else {
+      this.dirX = -this.dirX;
+      this.dirY = -this.dirY;
+    }
+  }
+
+  render(ctx) {
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fillStyle = this.color;
+    ctx.fill();
+  }
+
+  reset() {
+    this.x = this.spawn.x;
+    this.y = this.spawn.y;
+    this.dirX = this.spawn.dirX;
+    this.dirY = this.spawn.dirY;
+    this.speed = this.spawn.speed;
+  }
+}
+
+class MenuState {
+  constructor(game) {
+    this.game = game;
+  }
+
+  update(dt) {
+    // No menu updates yet, but keep the method for consistency.
+  }
+
+  render(ctx) {
+    const { width, height } = this.game.canvas;
+    ctx.fillStyle = "#f5f5f5";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    ctx.font = "36px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("Oil's Well Remake", width / 2, height / 2 - 30);
+
+    ctx.font = "22px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("Press Enter to Start", width / 2, height / 2 + 20);
+  }
+
+  onKeyDown(event) {
+    if (event.key === "Enter") {
+      this.game.setState(new PlayState(this.game));
+    }
+  }
+}
+
+class PlayState {
+  constructor(game) {
+    this.game = game;
+    this.level = new Level(game.canvas.width, game.canvas.height);
+    this.score = 0;
+    this.levelComplete = false;
+    this.lives = 3;
+    this.startTile = this.level.getEntryTile();
+    this.wellPosition = this.level.getWellPosition();
+    this.drill = this.createDrill();
+    this.enemyBlueprints = this.level.getEnemySpawnPositions().map((spawn) => ({
+      x: spawn.x,
+      y: spawn.y,
+      dirX: Math.random() < 0.5 ? -1 : 1,
+      dirY: 0,
+      speed: 70 + Math.random() * 60,
+    }));
+    this.resetEnemies();
+  }
+
+  update(dt) {
+    this.drill.update(dt);
+    for (const enemy of this.enemies) {
+      enemy.update(dt);
+    }
+    if (this.handleEnemyInteractions()) {
+      return;
+    }
+  }
+
+  render(ctx) {
+    this.level.render(ctx);
+    this.renderWell(ctx);
+    this.drill.renderPipe(ctx);
+    for (const enemy of this.enemies) {
+      enemy.render(ctx);
+    }
+    this.drill.render(ctx);
+
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "14px 'Segoe UI', Arial, sans-serif";
+    ctx.fillStyle = "#ffffff88";
+    ctx.fillText("DEBUG: PLAY STATE", 12, 12);
+
+    this.renderHud(ctx);
+  }
+
+  onKeyDown(event) {
+    let handled = false;
+    switch (event.key) {
+      case "ArrowUp":
+        this.drill.setDirection(0, -1);
+        handled = true;
+        break;
+      case "ArrowDown":
+        this.drill.setDirection(0, 1);
+        handled = true;
+        break;
+      case "ArrowLeft":
+        this.drill.setDirection(-1, 0);
+        handled = true;
+        break;
+      case "ArrowRight":
+        this.drill.setDirection(1, 0);
+        handled = true;
+        break;
+      default:
+        break;
+    }
+
+    if (event.code === "Space") {
+      this.drill.startRetract();
+      handled = true;
+    }
+
+    if (handled) {
+      event.preventDefault();
+    }
+  }
+
+  onKeyUp(event) {
+    if (event.code === "Space") {
+      this.drill.stopRetract();
+      event.preventDefault();
+    }
+  }
+
+  handlePelletCollected() {
+    this.score += 10;
+    if (this.level.pelletCount === 0) {
+      this.levelComplete = true;
+    }
+  }
+
+  renderHud(ctx) {
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "16px 'Segoe UI', Arial, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(`Score: ${this.score}`, 20, 30);
+
+    ctx.textAlign = "center";
+    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, 30);
+
+    ctx.textAlign = "right";
+    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, 30);
+
+    if (this.levelComplete) {
+      ctx.textAlign = "center";
+      ctx.font = "32px 'Segoe UI', Arial, sans-serif";
+      ctx.fillText(
+        "LEVEL COMPLETE!",
+        this.game.canvas.width / 2,
+        80
+      );
+    }
+
+    ctx.restore();
+  }
+
+  createDrill() {
+    return new Drill(this.level, this.wellPosition, this.startTile, (tx, ty) => {
+      this.handlePelletCollected(tx, ty);
+    });
+  }
+
+  resetDrillAndPipe() {
+    this.drill = this.createDrill();
+  }
+
+  resetEnemies() {
+    this.enemies = this.enemyBlueprints.map((data) =>
+      new Enemy(this.level, data.x, data.y, data.dirX, data.dirY, data.speed)
+    );
+  }
+
+  handleEnemyInteractions() {
+    const survivors = [];
+    for (const enemy of this.enemies) {
+      const dx = enemy.x - this.drill.x;
+      const dy = enemy.y - this.drill.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist <= enemy.radius + this.drill.radius) {
+        this.score += 50;
+        continue;
+      }
+
+      if (this.enemyHitsPipe(enemy)) {
+        this.handleLifeLost();
+        return true;
+      }
+
+      survivors.push(enemy);
+    }
+
+    this.enemies = survivors;
+    return false;
+  }
+
+  enemyHitsPipe(enemy) {
+    const points = this.drill.pipePoints;
+    if (points.length < 2) {
+      return false;
+    }
+
+    const pipeRadius = 4;
+    const threshold = enemy.radius + pipeRadius;
+    for (let i = 0; i < points.length - 1; i += 1) {
+      const a = points[i];
+      const b = points[i + 1];
+      const dist = distancePointToSegment(enemy.x, enemy.y, a.x, a.y, b.x, b.y);
+      if (dist <= threshold) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  handleLifeLost() {
+    if (this.lives <= 0) {
+      return;
+    }
+    this.lives -= 1;
+    if (this.lives <= 0) {
+      this.game.setState(new GameOverState(this.game, this.score));
+      return;
+    }
+    this.resetDrillAndPipe();
+    this.resetEnemies();
+  }
+
+  renderWell(ctx) {
+    const well = this.wellPosition;
+    ctx.save();
+    ctx.fillStyle = "#8d8d8d";
+    ctx.fillRect(well.x - 12, well.y - 6, 24, 12);
+    ctx.fillRect(well.x - 4, well.y - this.level.tileSize * 0.4, 8, this.level.tileSize * 0.4);
+    ctx.restore();
+  }
+}
+
+class GameOverState {
+  constructor(game, finalScore) {
+    this.game = game;
+    this.finalScore = finalScore;
+  }
+
+  update(dt) {}
+
+  render(ctx) {
+    ctx.save();
+    ctx.fillStyle = "#ffffff";
+    ctx.textAlign = "center";
+    ctx.font = "48px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText("GAME OVER", this.game.canvas.width / 2, this.game.canvas.height / 2 - 40);
+    ctx.font = "24px 'Segoe UI', Arial, sans-serif";
+    ctx.fillText(`Final Score: ${this.finalScore}`, this.game.canvas.width / 2, this.game.canvas.height / 2);
+    ctx.fillText(
+      "Press Enter to return to menu",
+      this.game.canvas.width / 2,
+      this.game.canvas.height / 2 + 40
+    );
+    ctx.restore();
+  }
+
+  onKeyDown(event) {
+    if (event.key === "Enter") {
+      this.game.setState(new MenuState(this.game));
+    }
+  }
+}
+
+function distancePointToSegment(px, py, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const apx = px - ax;
+  const apy = py - ay;
+  const abLengthSq = abx * abx + aby * aby;
+  let t = 0;
+  if (abLengthSq > 0) {
+    t = (apx * abx + apy * aby) / abLengthSq;
+    t = Math.max(0, Math.min(1, t));
+  }
+  const closestX = ax + abx * t;
+  const closestY = ay + aby * t;
+  const dx = px - closestX;
+  const dy = py - closestY;
+  return Math.hypot(dx, dy);
+}
+
+class Game {
+  constructor(canvas, ctx) {
+    this.canvas = canvas;
+    this.ctx = ctx;
+    this.currentState = new MenuState(this);
+  }
+
+  setState(state) {
+    this.currentState = state;
+  }
+
+  update(dt) {
+    if (this.currentState && typeof this.currentState.update === "function") {
+      this.currentState.update(dt);
+    }
+  }
+
+  render() {
+    // Clear to a consistent background before drawing the active state.
+    this.ctx.fillStyle = "#151515";
+    this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+    if (this.currentState && typeof this.currentState.render === "function") {
+      this.currentState.render(this.ctx);
+    }
+  }
+
+  handleKeyDown(event) {
+    if (this.currentState && typeof this.currentState.onKeyDown === "function") {
+      this.currentState.onKeyDown(event);
+    }
+  }
+
+  handleKeyUp(event) {
+    if (this.currentState && typeof this.currentState.onKeyUp === "function") {
+      this.currentState.onKeyUp(event);
+    }
+  }
+}
+
+const game = new Game(canvas, ctx);
+
+window.addEventListener("keydown", (event) => {
+  game.handleKeyDown(event);
+});
+
+window.addEventListener("keyup", (event) => {
+  game.handleKeyUp(event);
+});
+
+function gameLoop(timestamp) {
+  const dt = (timestamp - lastTime) / 1000;
+  lastTime = timestamp;
+
+  game.update(dt);
+  game.render();
+
+  requestAnimationFrame(gameLoop);
+}
+
+requestAnimationFrame(gameLoop);
