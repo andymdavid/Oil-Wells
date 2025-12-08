@@ -162,6 +162,28 @@ class Level {
   }
 
   render(ctx) {
+    const { width, height } = ctx.canvas;
+    const surfaceBand = Math.max(40, this.offsetY * 0.5);
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, surfaceBand);
+    skyGrad.addColorStop(0, "#4f7ecf");
+    skyGrad.addColorStop(0.5, "#f4d879");
+    skyGrad.addColorStop(1, "#c97938");
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, width, surfaceBand);
+
+    ctx.fillStyle = "#2f1f16";
+    ctx.fillRect(0, surfaceBand, width, this.offsetY);
+
+    const rockGrad = ctx.createLinearGradient(0, this.offsetY, 0, height);
+    rockGrad.addColorStop(0, "#1a1412");
+    rockGrad.addColorStop(0.5, "#201a18");
+    rockGrad.addColorStop(1, "#120d0c");
+    ctx.fillStyle = rockGrad;
+    ctx.fillRect(0, this.offsetY, width, height - this.offsetY);
+
+    ctx.save();
+    ctx.lineJoin = "round";
+    const tunnelInset = Math.max(2, this.tileSize * 0.1);
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
         const tile = this.tiles[y][x];
@@ -169,27 +191,49 @@ class Level {
         const py = this.offsetY + y * this.tileSize;
 
         if (tile === "#") {
-          ctx.fillStyle = "#1f1b24";
+          ctx.fillStyle = "#1a120f";
           ctx.fillRect(px, py, this.tileSize, this.tileSize);
-        } else {
-          ctx.fillStyle = "#3b312c";
-          ctx.fillRect(px, py, this.tileSize, this.tileSize);
+          continue;
+        }
 
-          if (tile === "O") {
-            ctx.beginPath();
-            ctx.arc(
-              px + this.tileSize / 2,
-              py + this.tileSize / 2,
-              this.tileSize * 0.15,
-              0,
-              Math.PI * 2
-            );
-            ctx.fillStyle = "#f2d16b";
-            ctx.fill();
-          }
+        const tunnelWidth = this.tileSize - tunnelInset * 2;
+        const tunnelHeight = this.tileSize - tunnelInset * 2;
+        const rx = px + tunnelInset;
+        const ry = py + tunnelInset;
+        const path = new Path2D();
+        const radius = Math.min(10, this.tileSize * 0.35);
+        path.roundRect(rx, ry, tunnelWidth, tunnelHeight, radius);
+        const tunnelGrad = ctx.createLinearGradient(rx, ry, rx, ry + tunnelHeight);
+        tunnelGrad.addColorStop(0, "#4a3d33");
+        tunnelGrad.addColorStop(1, "#2e241e");
+        ctx.fillStyle = tunnelGrad;
+        ctx.fill(path);
+        ctx.strokeStyle = "rgba(0,0,0,0.35)";
+        ctx.lineWidth = 2;
+        ctx.stroke(path);
+
+        if (tile === "O") {
+          const cx = px + this.tileSize / 2;
+          const cy = py + this.tileSize / 2;
+          const glow = ctx.createRadialGradient(
+            cx,
+            cy,
+            2,
+            cx,
+            cy,
+            this.tileSize * 0.4
+          );
+          glow.addColorStop(0, "#ffe69f");
+          glow.addColorStop(0.4, "#f5a623");
+          glow.addColorStop(1, "rgba(245,166,35,0)");
+          ctx.fillStyle = glow;
+          ctx.beginPath();
+          ctx.arc(cx, cy, this.tileSize * 0.3, 0, Math.PI * 2);
+          ctx.fill();
         }
       }
     }
+    ctx.restore();
   }
 }
 
@@ -217,6 +261,7 @@ class Drill {
     this.destinationTile = null;
     this.isRetracting = false;
     this.retractSpeed = this.speed * 2;
+    this.facingAngle = Math.PI / 2;
   }
 
   setDirection(dx, dy) {
@@ -299,6 +344,7 @@ class Drill {
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const maxStep = this.retractSpeed * dt;
+    this.updateFacingFromVector(dx, dy);
 
     if (dist <= maxStep) {
       this.x = target.x;
@@ -417,6 +463,7 @@ class Drill {
       this.destinationTile = { x: this.currentTileX, y: this.currentTileY };
       this.pendingDirX = 0;
       this.pendingDirY = 0;
+      this.updateFacingFromVector(0, 1);
     }
   }
 
@@ -466,6 +513,7 @@ class Drill {
     this.dirX = dx;
     this.dirY = dy;
     this.destinationTile = { x: targetTileX, y: targetTileY };
+    this.updateFacingFromVector(dx, dy);
     return true;
   }
 
@@ -513,6 +561,13 @@ class Drill {
     }
   }
 
+  updateFacingFromVector(dx, dy) {
+    if (dx === 0 && dy === 0) {
+      return;
+    }
+    this.facingAngle = Math.atan2(dy, dx);
+  }
+
   renderPipe(ctx) {
     if (this.pipePoints.length < 1) {
       return;
@@ -529,21 +584,82 @@ class Drill {
     if (lastPoint.x !== this.x || lastPoint.y !== this.y) {
       ctx.lineTo(this.x, this.y);
     }
-    ctx.lineWidth = 8;
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
-    ctx.strokeStyle = "#f7b267";
+    ctx.save();
+    const bounds = this.pipePoints.reduce(
+      (acc, p) => {
+        acc.minY = Math.min(acc.minY, p.y);
+        acc.maxY = Math.max(acc.maxY, p.y);
+        return acc;
+      },
+      { minY: this.pipePoints[0].y, maxY: this.pipePoints[0].y }
+    );
+    const grad = ctx.createLinearGradient(0, bounds.minY, 0, bounds.maxY + 1);
+    grad.addColorStop(0, "#bfc5ce");
+    grad.addColorStop(1, "#8d949f");
+    ctx.lineWidth = 12;
+    ctx.strokeStyle = grad;
     ctx.stroke();
+
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.stroke();
+    ctx.restore();
   }
 
   render(ctx) {
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.color;
-    ctx.fill();
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    ctx.rotate(this.facingAngle);
+    const bodyLength = this.radius * 3.6;
+    const bodyWidth = this.radius * 1.4;
+    const startX = -bodyLength * 0.3;
+    const bodyPath = new Path2D();
+    bodyPath.roundRect(startX, -bodyWidth / 2, bodyLength, bodyWidth, bodyWidth / 2);
+    const bodyGrad = ctx.createLinearGradient(startX, 0, startX + bodyLength, 0);
+    bodyGrad.addColorStop(0, "#4b4f5c");
+    bodyGrad.addColorStop(0.5, "#858b97");
+    bodyGrad.addColorStop(1, "#353943");
+    ctx.fillStyle = bodyGrad;
+    ctx.fill(bodyPath);
     ctx.lineWidth = 2;
-    ctx.strokeStyle = this.outline;
+    ctx.strokeStyle = "#21242b";
+    ctx.stroke(bodyPath);
+
+    const tipLength = bodyWidth * 0.9;
+    const tipPath = new Path2D();
+    tipPath.moveTo(startX + bodyLength, 0);
+    tipPath.lineTo(startX + bodyLength + tipLength, -bodyWidth * 0.4);
+    tipPath.lineTo(startX + bodyLength + tipLength, bodyWidth * 0.4);
+    tipPath.closePath();
+    const tipGrad = ctx.createLinearGradient(
+      startX + bodyLength,
+      0,
+      startX + bodyLength + tipLength,
+      0
+    );
+    tipGrad.addColorStop(0, "#c96d32");
+    tipGrad.addColorStop(1, "#a44e1a");
+    ctx.fillStyle = tipGrad;
+    ctx.fill(tipPath);
+    ctx.stroke(tipPath);
+
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(startX + bodyLength * 0.1, -bodyWidth * 0.3);
+    ctx.lineTo(startX + bodyLength * 0.8, -bodyWidth * 0.3);
     ctx.stroke();
+
+    const lightY = -bodyWidth * 0.8;
+    ctx.beginPath();
+    ctx.arc(startX + bodyLength * 0.2, lightY, bodyWidth * 0.15, 0, Math.PI * 2);
+    ctx.fillStyle = "#ffe29a";
+    ctx.shadowColor = "#ffd986";
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.restore();
   }
 }
 
@@ -573,10 +689,52 @@ class Enemy {
   }
 
   render(ctx) {
+    ctx.save();
+    ctx.translate(this.x, this.y);
+    const bodyWidth = this.radius * 1.6;
+    const bodyHeight = this.radius * 1.1;
+    const bodyGrad = ctx.createLinearGradient(0, -bodyHeight, 0, bodyHeight);
+    bodyGrad.addColorStop(0, "#ff8f8f");
+    bodyGrad.addColorStop(1, "#c73d4d");
+    ctx.fillStyle = bodyGrad;
     ctx.beginPath();
-    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
-    ctx.fillStyle = this.color;
+    ctx.ellipse(0, 0, bodyWidth, bodyHeight, 0, 0, Math.PI * 2);
     ctx.fill();
+
+    ctx.fillStyle = "#7b2434";
+    ctx.beginPath();
+    ctx.ellipse(0, bodyHeight * 0.7, bodyWidth * 0.7, bodyHeight * 0.25, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.ellipse(-bodyWidth * 0.6, -bodyHeight, bodyWidth * 0.18, bodyWidth * 0.25, 0, 0, Math.PI, true);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(bodyWidth * 0.6, -bodyHeight, bodyWidth * 0.18, bodyWidth * 0.25, 0, 0, Math.PI, true);
+    ctx.fill();
+
+    ctx.fillStyle = "#fff";
+    ctx.beginPath();
+    ctx.arc(-bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.25, 0, Math.PI * 2);
+    ctx.arc(bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.25, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#222";
+    ctx.beginPath();
+    ctx.arc(-bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.12, 0, Math.PI * 2);
+    ctx.arc(bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.12, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#762032";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-bodyWidth * 0.2, bodyHeight * 0.5);
+    ctx.lineTo(-bodyWidth * 0.5, bodyHeight * 0.9);
+    ctx.moveTo(bodyWidth * 0.2, bodyHeight * 0.5);
+    ctx.lineTo(bodyWidth * 0.5, bodyHeight * 0.9);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   reset() {
@@ -714,24 +872,30 @@ class PlayState {
 
   renderHud(ctx) {
     ctx.save();
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "16px 'Segoe UI', Arial, sans-serif";
+    ctx.fillStyle = "rgba(10,10,10,0.6)";
+    ctx.fillRect(0, 0, this.game.canvas.width, 42);
+
+    ctx.fillStyle = "#f4f6f8";
+    ctx.font = "14px 'Segoe UI', sans-serif";
+    ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    ctx.fillText(`Score: ${this.score}`, 20, 30);
+    ctx.fillText(`Score: ${this.score}`, 20, 21);
 
     ctx.textAlign = "center";
-    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, 30);
+    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, 21);
 
     ctx.textAlign = "right";
-    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, 30);
+    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, 21);
 
     if (this.levelComplete) {
       ctx.textAlign = "center";
-      ctx.font = "32px 'Segoe UI', Arial, sans-serif";
+      ctx.font = "40px 'Segoe UI', sans-serif";
+      ctx.shadowColor = "rgba(0,0,0,0.5)";
+      ctx.shadowBlur = 12;
       ctx.fillText(
         "LEVEL COMPLETE!",
         this.game.canvas.width / 2,
-        80
+        this.game.canvas.height * 0.15
       );
     }
 
@@ -812,9 +976,29 @@ class PlayState {
   renderWell(ctx) {
     const well = this.wellPosition;
     ctx.save();
-    ctx.fillStyle = "#8d8d8d";
-    ctx.fillRect(well.x - 12, well.y - 6, 24, 12);
-    ctx.fillRect(well.x - 4, well.y - this.level.tileSize * 0.4, 8, this.level.tileSize * 0.4);
+    ctx.translate(well.x, well.y);
+    ctx.fillStyle = "#d8d4d0";
+    ctx.fillRect(-18, -10, 36, 12);
+
+    ctx.fillStyle = "#5b5e68";
+    ctx.fillRect(-6, -this.level.tileSize * 0.7, 12, this.level.tileSize * 0.7);
+    ctx.fillRect(-2, -this.level.tileSize * 1.1, 4, this.level.tileSize * 0.4);
+
+    ctx.strokeStyle = "#262832";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-18, -10);
+    ctx.lineTo(-18, -28);
+    ctx.lineTo(-10, -32);
+    ctx.lineTo(-10, -14);
+    ctx.moveTo(18, -10);
+    ctx.lineTo(18, -30);
+    ctx.lineTo(10, -32);
+    ctx.lineTo(10, -14);
+    ctx.stroke();
+
+    ctx.fillStyle = "#d5a742";
+    ctx.fillRect(-22, -14, 44, 6);
     ctx.restore();
   }
 }
@@ -829,16 +1013,21 @@ class GameOverState {
 
   render(ctx) {
     ctx.save();
+    ctx.fillStyle = "rgba(0,0,0,0.65)";
+    ctx.fillRect(0, 0, this.game.canvas.width, this.game.canvas.height);
     ctx.fillStyle = "#ffffff";
     ctx.textAlign = "center";
-    ctx.font = "48px 'Segoe UI', Arial, sans-serif";
+    ctx.font = "54px 'Segoe UI', sans-serif";
+    ctx.shadowColor = "rgba(0,0,0,0.6)";
+    ctx.shadowBlur = 14;
     ctx.fillText("GAME OVER", this.game.canvas.width / 2, this.game.canvas.height / 2 - 40);
-    ctx.font = "24px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText(`Final Score: ${this.finalScore}`, this.game.canvas.width / 2, this.game.canvas.height / 2);
+    ctx.font = "26px 'Segoe UI', sans-serif";
+    ctx.fillText(`Final Score: ${this.finalScore}`, this.game.canvas.width / 2, this.game.canvas.height / 2 + 10);
+    ctx.font = "20px 'Segoe UI', sans-serif";
     ctx.fillText(
       "Press Enter to return to menu",
       this.game.canvas.width / 2,
-      this.game.canvas.height / 2 + 40
+      this.game.canvas.height / 2 + 50
     );
     ctx.restore();
   }
