@@ -459,6 +459,7 @@ class Drill {
     this.tileTrail = [];
     this.animTime = 0;
     this.isDocked = true;
+    this.retractHoldTime = 0;
 
     // Precompute geometry used for rendering and collisions.
     this.bodyWidth = Math.min(level.tileSize * 0.9, this.radius * 1.8);
@@ -486,6 +487,7 @@ class Drill {
       return;
     }
     this.isRetracting = true;
+    this.retractHoldTime = 0;
     this.dirX = 0;
     this.dirY = 0;
     this.pendingDirX = 0;
@@ -510,10 +512,12 @@ class Drill {
   update(dt) {
     this.animTime += dt;
     if (this.isRetracting) {
+      this.retractHoldTime += dt;
       this.retractAlongPipe(dt);
       this.refreshDockedState();
       return;
     }
+    this.retractHoldTime = 0;
     this.refreshDockedState();
     const center = this.getCurrentTileCenter();
     if (center) {
@@ -550,6 +554,7 @@ class Drill {
       this.lastForwardY = 0;
       this.tileTrail = [];
       this.isRetracting = false;
+      this.retractHoldTime = 0;
       return;
     }
 
@@ -558,7 +563,9 @@ class Drill {
     const dx = target.x - this.x;
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
-    const maxStep = this.retractSpeed * dt;
+    const rapidBoost = Math.min(1, this.retractHoldTime);
+    const accelerationMultiplier = 1 + rapidBoost * rapidBoost * 15;
+    const maxStep = this.retractSpeed * accelerationMultiplier * dt;
 
     if (dist <= maxStep) {
       this.x = target.x;
@@ -571,6 +578,7 @@ class Drill {
       this.syncCurrentTile();
       if (this.pipePoints.length === 1) {
         this.isRetracting = false;
+        this.retractHoldTime = 0;
         this.currentTileX = this.entryTile.x;
         this.currentTileY = this.entryTile.y;
         this.lastForwardX = 0;
@@ -639,6 +647,14 @@ class Drill {
   updateHeadPipePoint() {
     const headPoint = { x: this.x, y: this.y };
     if (this.pipePoints.length === 0) {
+      this.pipePoints.push(headPoint);
+      return;
+    }
+    if (this.pipePoints.length === 1) {
+      const anchor = this.pipePoints[0];
+      if (anchor.x === headPoint.x && anchor.y === headPoint.y) {
+        return;
+      }
       this.pipePoints.push(headPoint);
       return;
     }
@@ -861,16 +877,27 @@ class Drill {
       return;
     }
 
+    const drawSegment = (from, to) => {
+      if (!from || !to) return;
+      if (from.x === to.x || from.y === to.y) {
+        ctx.lineTo(to.x, to.y);
+        return;
+      }
+      ctx.lineTo(to.x, from.y);
+      ctx.lineTo(to.x, to.y);
+    };
+
     ctx.beginPath();
     const first = this.pipePoints[0];
     ctx.moveTo(first.x, first.y);
     for (let i = 1; i < this.pipePoints.length; i += 1) {
+      const prev = this.pipePoints[i - 1];
       const point = this.pipePoints[i];
-      ctx.lineTo(point.x, point.y);
+      drawSegment(prev, point);
     }
     const lastPoint = this.pipePoints[this.pipePoints.length - 1];
     if (lastPoint.x !== this.x || lastPoint.y !== this.y) {
-      ctx.lineTo(this.x, this.y);
+      drawSegment(lastPoint, { x: this.x, y: this.y });
     }
     ctx.lineCap = "round";
     ctx.lineJoin = "round";
