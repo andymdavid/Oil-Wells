@@ -14,27 +14,27 @@ class Level {
     this.tileSize = 32;
     const rawMap = [
       "########################",
-      "#..........O....O.....##",
-      "#.####################.#",
-      "#..O......E....O....O..#",
-      "##.##################..#",
-      "#..O..O.......E....O..##",
-      "#.####################.#",
-      "#..O......O....O....O..#",
-      "##.##################..#",
-      "#..O..O.......O....O..##",
-      "########################",
-      "#......................#",
-      "#......................#",
-      "########################",
-      "#......................#",
+      "#..O....E....O....E....#",
+      "###.#######.#######.####",
+      "#...O..E...O...E....O..#",
+      "######.########.########",
+      "#..E....O....E....O....#",
+      "####.########.######.###",
+      "#....O....E....O....E..#",
+      "#######.#########.######",
+      "#..O...E....O...E....O.#",
+      "#####.####.#######.#####",
+      "#....E....O....E....O..#",
+      "########.#######.#######",
+      "#..E....O....E....O....#",
+      "####.#######.########.##",
+      "#....O....E....O....E..#",
       "########################",
     ];
 
     this.tiles = rawMap.map((row) => row.split(""));
     this.height = this.tiles.length;
     this.width = this.tiles[0].length;
-    this.carveVerticalShafts([3, 10, 15, 20], [2, 4, 6, 8, 10, 13]);
 
     const gridWidth = this.width * this.tileSize;
     const gridHeight = this.height * this.tileSize;
@@ -42,14 +42,14 @@ class Level {
     this.offsetY = Math.max(0, Math.floor((canvasHeight - gridHeight) / 2));
 
     this.pelletCount = 0;
-    this.enemySpawns = [];
+    this.enemyLanes = [];
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
         const tile = this.tiles[y][x];
         if (tile === "O") {
           this.pelletCount += 1;
         } else if (tile === "E") {
-          this.enemySpawns.push({ x, y });
+          this.enemyLanes.push({ x, y });
           this.tiles[y][x] = ".";
         }
       }
@@ -61,20 +61,6 @@ class Level {
       x: entryCenter.x,
       y: entryCenter.y - this.tileSize * 1.5,
     };
-  }
-
-  carveVerticalShafts(columns, rows) {
-    for (const row of rows) {
-      if (row <= 0 || row >= this.height - 1) {
-        continue;
-      }
-      for (const col of columns) {
-        if (col <= 0 || col >= this.width - 1) {
-          continue;
-        }
-        this.tiles[row][col] = ".";
-      }
-    }
   }
 
   findEntryTile() {
@@ -149,8 +135,11 @@ class Level {
     return this.pelletCount > 0;
   }
 
-  getEnemySpawnPositions() {
-    return this.enemySpawns.map(({ x, y }) => this.tileToPixelCenter(x, y));
+  getEnemyLanes() {
+    const lanes = this.enemyLanes.map(({ x, y }) =>
+      this.tileToPixelCenter(x, y).y
+    );
+    return [...new Set(lanes)];
   }
 
   getEntryTile() {
@@ -486,6 +475,13 @@ class Drill {
       this.updateFacingFromVector(0, 1);
       this.lastForwardX = 0;
       this.lastForwardY = 1;
+      if (
+        !this.tileTrail.length ||
+        this.tileTrail[this.tileTrail.length - 1].x !== this.currentTileX ||
+        this.tileTrail[this.tileTrail.length - 1].y !== this.currentTileY
+      ) {
+        this.tileTrail.push({ x: this.currentTileX, y: this.currentTileY });
+      }
     }
   }
 
@@ -702,44 +698,81 @@ class Drill {
 }
 
 class Enemy {
-  constructor(level, x, y, dirX = 1, dirY = 0, speed = 90) {
+  constructor(level, laneY, direction, speed, canvasWidth) {
     this.level = level;
-    this.x = x;
-    this.y = y;
-    this.dirX = dirX;
-    this.dirY = dirY;
+    this.laneY = laneY;
+    this.initialDirection = direction;
+    this.direction = direction;
     this.speed = speed;
+    this.canvasWidth = canvasWidth;
+    this.spawnMargin = 80;
     this.radius = Math.max(8, level.tileSize * 0.25);
-    this.spawn = { x, y, dirX, dirY, speed };
-    this.color = "#ff4d6d";
+    this.colorBody = "#ff8f8f";
+    this.colorShadow = "#b43e4b";
+    this.active = true;
+    this.respawnTimer = 0;
+    this.reset();
+  }
+
+  startPosition() {
+    return this.direction > 0
+      ? -this.spawnMargin
+      : this.canvasWidth + this.spawnMargin;
+  }
+
+  reset() {
+    this.direction = this.initialDirection;
+    this.x = this.startPosition();
+    this.y = this.laneY;
+    this.active = true;
+    this.respawnTimer = 0;
+  }
+
+  scheduleRespawn(delay = 0.5) {
+    this.active = false;
+    this.respawnTimer = delay;
   }
 
   update(dt) {
-    const nextX = this.x + this.dirX * this.speed * dt;
-    const nextY = this.y + this.dirY * this.speed * dt;
-    if (this.level.isTunnelAtPixel(nextX, nextY)) {
-      this.x = nextX;
-      this.y = nextY;
-    } else {
-      this.dirX = -this.dirX;
-      this.dirY = -this.dirY;
+    if (!this.active) {
+      this.respawnTimer -= dt;
+      if (this.respawnTimer <= 0) {
+        this.reset();
+      }
+      return;
+    }
+
+    this.x += this.direction * this.speed * dt;
+    this.y = this.laneY;
+
+    if (this.direction > 0 && this.x > this.canvasWidth + this.spawnMargin) {
+      this.scheduleRespawn();
+    } else if (this.direction < 0 && this.x < -this.spawnMargin) {
+      this.scheduleRespawn();
     }
   }
 
+  handleDestroyed() {
+    this.scheduleRespawn(1.5);
+  }
+
   render(ctx) {
+    if (!this.active) {
+      return;
+    }
     ctx.save();
     ctx.translate(this.x, this.y);
     const bodyWidth = this.radius * 1.6;
     const bodyHeight = this.radius * 1.1;
     const bodyGrad = ctx.createLinearGradient(0, -bodyHeight, 0, bodyHeight);
-    bodyGrad.addColorStop(0, "#ff8f8f");
-    bodyGrad.addColorStop(1, "#c73d4d");
+    bodyGrad.addColorStop(0, this.colorBody);
+    bodyGrad.addColorStop(1, this.colorShadow);
     ctx.fillStyle = bodyGrad;
     ctx.beginPath();
     ctx.ellipse(0, 0, bodyWidth, bodyHeight, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "#7b2434";
+    ctx.fillStyle = this.colorShadow;
     ctx.beginPath();
     ctx.ellipse(0, bodyHeight * 0.7, bodyWidth * 0.7, bodyHeight * 0.25, 0, 0, Math.PI * 2);
     ctx.fill();
@@ -771,16 +804,7 @@ class Enemy {
     ctx.moveTo(bodyWidth * 0.2, bodyHeight * 0.5);
     ctx.lineTo(bodyWidth * 0.5, bodyHeight * 0.9);
     ctx.stroke();
-
     ctx.restore();
-  }
-
-  reset() {
-    this.x = this.spawn.x;
-    this.y = this.spawn.y;
-    this.dirX = this.spawn.dirX;
-    this.dirY = this.spawn.dirY;
-    this.speed = this.spawn.speed;
   }
 }
 
@@ -823,14 +847,16 @@ class PlayState {
     this.startTile = this.level.getEntryTile();
     this.wellPosition = this.level.getWellPosition();
     this.drill = this.createDrill();
-    this.enemyBlueprints = this.level.getEnemySpawnPositions().map((spawn) => ({
-      x: spawn.x,
-      y: spawn.y,
-      dirX: Math.random() < 0.5 ? -1 : 1,
-      dirY: 0,
-      speed: 70 + Math.random() * 60,
-    }));
-    this.resetEnemies();
+    const lanes = this.level.getEnemyLanes();
+    this.enemies = lanes.map((laneY, index) =>
+      new Enemy(
+        this.level,
+        laneY,
+        index % 2 === 0 ? 1 : -1,
+        70 + Math.random() * 60,
+        this.game.canvas.width
+      )
+    );
   }
 
   update(dt) {
@@ -951,19 +977,23 @@ class PlayState {
   }
 
   resetEnemies() {
-    this.enemies = this.enemyBlueprints.map((data) =>
-      new Enemy(this.level, data.x, data.y, data.dirX, data.dirY, data.speed)
-    );
+    if (!this.enemies) {
+      return;
+    }
+    this.enemies.forEach((enemy) => enemy.reset());
   }
 
   handleEnemyInteractions() {
-    const survivors = [];
     for (const enemy of this.enemies) {
+      if (!enemy.active) {
+        continue;
+      }
       const dx = enemy.x - this.drill.x;
       const dy = enemy.y - this.drill.y;
       const dist = Math.hypot(dx, dy);
       if (dist <= enemy.radius + this.drill.radius) {
         this.score += 50;
+        enemy.handleDestroyed();
         continue;
       }
 
@@ -971,11 +1001,7 @@ class PlayState {
         this.handleLifeLost();
         return true;
       }
-
-      survivors.push(enemy);
     }
-
-    this.enemies = survivors;
     return false;
   }
 
