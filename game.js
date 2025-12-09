@@ -228,6 +228,8 @@ class Level {
     ctx.closePath();
     ctx.fill();
 
+    this.renderTree(ctx, width, horizonHeight, terrainHeight);
+
     // Underground rock
     const rockGrad = ctx.createLinearGradient(0, this.offsetY, 0, height);
     rockGrad.addColorStop(0, "#1a1412");
@@ -311,6 +313,71 @@ class Level {
     }
     ctx.restore();
   }
+
+  renderTree(ctx, width, horizonHeight, terrainHeight) {
+    const treeBaseY = horizonHeight - terrainHeight * 0.25;
+    const treeHeight = terrainHeight * 0.9;
+    const treeWidth = treeHeight * 0.6;
+    const randomSeed = Math.sin(this.offsetX + this.offsetY * 0.5);
+    const treeX = width * 0.2 + width * 0.6 * (randomSeed * 0.5 + 0.5);
+
+    ctx.save();
+    ctx.translate(treeX, treeBaseY);
+
+    ctx.fillStyle = "#5c3a2a";
+    ctx.fillRect(-treeWidth * 0.05, 0, treeWidth * 0.1, treeHeight * 0.25);
+
+    const layers = 4;
+    for (let i = 0; i < layers; i += 1) {
+      const layerHeight = treeHeight * 0.25;
+      const topY = -treeHeight * 0.15 - i * layerHeight * 0.7;
+      const span = treeWidth - i * (treeWidth * 0.18);
+      const grad = ctx.createLinearGradient(-span / 2, topY, span / 2, topY + layerHeight);
+      grad.addColorStop(0, "#244c2c");
+      grad.addColorStop(1, "#3a7a45");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, topY - layerHeight * 0.8);
+      ctx.lineTo(span / 2, topY + layerHeight);
+      ctx.lineTo(-span / 2, topY + layerHeight);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    const starRadius = treeWidth * 0.1;
+    ctx.fillStyle = "#ffd85b";
+    ctx.beginPath();
+    for (let i = 0; i < 5; i += 1) {
+      const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+      const outerX = Math.cos(angle) * starRadius;
+      const outerY = -treeHeight * 0.8 + Math.sin(angle) * starRadius;
+      const innerAngle = angle + Math.PI / 5;
+      const innerX = Math.cos(innerAngle) * starRadius * 0.5;
+      const innerY = -treeHeight * 0.8 + Math.sin(innerAngle) * starRadius * 0.5;
+      if (i === 0) {
+        ctx.moveTo(outerX, outerY);
+      } else {
+        ctx.lineTo(outerX, outerY);
+      }
+      ctx.lineTo(innerX, innerY);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    const ornamentColors = ["#ff4d4d", "#ffd85b", "#4dc6ff", "#f6c1ff"];
+    for (let i = 0; i < 10; i += 1) {
+      const angle = (i / 10) * Math.PI * 2;
+      const radius = treeWidth * 0.2 + (i % 3) * treeWidth * 0.05;
+      const ox = Math.cos(angle) * radius;
+      const oy = -treeHeight * 0.2 - Math.abs(Math.sin(angle)) * treeHeight * 0.4;
+      ctx.fillStyle = ornamentColors[i % ornamentColors.length];
+      ctx.beginPath();
+      ctx.arc(ox, oy, treeWidth * 0.03, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
 }
 
 class Drill {
@@ -342,6 +409,7 @@ class Drill {
     this.lastForwardY = 0;
     this.tileTrail = [];
     this.animTime = 0;
+    this.isDocked = true;
 
     // Precompute geometry used for rendering and collisions.
     this.bodyWidth = Math.min(level.tileSize * 0.9, this.radius * 1.8);
@@ -394,8 +462,10 @@ class Drill {
     this.animTime += dt;
     if (this.isRetracting) {
       this.retractAlongPipe(dt);
+      this.refreshDockedState();
       return;
     }
+    this.refreshDockedState();
     const center = this.getCurrentTileCenter();
     if (center) {
       this.snapToCenterIfClose(center);
@@ -702,6 +772,14 @@ class Drill {
   }
 
   collidesWithHead(enemyX, enemyY, enemyRadius) {
+    this.refreshDockedState();
+    if (this.isDocked) {
+      return false;
+    }
+    const enemyTile = this.level.pixelToTile(enemyX, enemyY);
+    if (!enemyTile || enemyTile.y !== this.currentTileY) {
+      return false;
+    }
     const centerDist = Math.hypot(enemyX - this.x, enemyY - this.y);
     if (centerDist <= enemyRadius + this.radius) {
       return true;
@@ -715,6 +793,18 @@ class Drill {
     const endY = this.y + uy * this.tipEndOffset;
     const dist = distancePointToSegment(enemyX, enemyY, startX, startY, endX, endY);
     return dist <= enemyRadius + this.headCollisionRadius;
+  }
+
+  refreshDockedState() {
+    const atEntry =
+      this.currentTileX === this.entryTile.x &&
+      this.currentTileY === this.entryTile.y;
+    const noPipeLaid = this.tileTrail.length === 0 && this.pipePoints.length <= 1;
+    this.isDocked =
+      !this.isRetracting &&
+      !this.destinationTile &&
+      atEntry &&
+      noPipeLaid;
   }
 
   renderPipe(ctx) {
