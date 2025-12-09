@@ -2,6 +2,7 @@ const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
 
 let lastTime = 0;
+const LEVEL_COMPLETE_BONUS = 1000;
 
 /**
  * A GameState should implement:
@@ -273,7 +274,7 @@ class Drill {
     this.y = wellPosition.y;
     this.onPelletCollected = onPelletCollected;
     this.speed = 200;
-    this.radius = level.tileSize * 0.3;
+    this.radius = level.tileSize * 0.45;
     this.color = "#ff914d";
     this.outline = "#351a0f";
     this.pipePoints = [{ x: this.x, y: this.y }];
@@ -292,12 +293,13 @@ class Drill {
     this.lastForwardX = 0;
     this.lastForwardY = 0;
     this.tileTrail = [];
+    this.animTime = 0;
 
     // Precompute geometry used for rendering and collisions.
-    this.bodyLength = this.radius * 3.6;
-    this.bodyWidth = this.radius * 1.4;
-    this.tipLength = this.bodyWidth * 0.9;
-    this.bodyStartOffset = -this.bodyLength * 0.3;
+    this.bodyWidth = Math.min(level.tileSize * 0.9, this.radius * 1.8);
+    this.bodyLength = this.bodyWidth * 1.8;
+    this.tipLength = this.bodyWidth * 0.8;
+    this.bodyStartOffset = -this.bodyLength * 0.35;
     this.bodyEndOffset = this.bodyStartOffset + this.bodyLength;
     this.tipEndOffset = this.bodyEndOffset + this.tipLength;
     this.headCollisionStartOffset = this.bodyEndOffset - this.bodyWidth * 0.4;
@@ -341,6 +343,7 @@ class Drill {
   }
 
   update(dt) {
+    this.animTime += dt;
     if (this.isRetracting) {
       this.retractAlongPipe(dt);
       return;
@@ -389,7 +392,6 @@ class Drill {
     const dy = target.y - this.y;
     const dist = Math.sqrt(dx * dx + dy * dy);
     const maxStep = this.retractSpeed * dt;
-    this.updateFacingFromVector(dx, dy);
 
     if (dist <= maxStep) {
       this.x = target.x;
@@ -714,50 +716,157 @@ class Drill {
     const bodyLength = this.bodyLength;
     const bodyWidth = this.bodyWidth;
     const startX = this.bodyStartOffset;
+
+    // Main chassis
     const bodyPath = new Path2D();
-    bodyPath.roundRect(startX, -bodyWidth / 2, bodyLength, bodyWidth, bodyWidth / 2);
-    const bodyGrad = ctx.createLinearGradient(startX, 0, startX + bodyLength, 0);
-    bodyGrad.addColorStop(0, "#4b4f5c");
-    bodyGrad.addColorStop(0.5, "#858b97");
-    bodyGrad.addColorStop(1, "#353943");
+    bodyPath.roundRect(startX, -bodyWidth / 2, bodyLength, bodyWidth, bodyWidth * 0.55);
+    const bodyGrad = ctx.createLinearGradient(startX, -bodyWidth / 2, startX + bodyLength, bodyWidth / 2);
+    bodyGrad.addColorStop(0, "#191b26");
+    bodyGrad.addColorStop(0.35, "#353a47");
+    bodyGrad.addColorStop(0.65, "#5d6574");
+    bodyGrad.addColorStop(1, "#1c1f29");
     ctx.fillStyle = bodyGrad;
     ctx.fill(bodyPath);
+    ctx.strokeStyle = "#0d0f15";
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "#21242b";
     ctx.stroke(bodyPath);
 
-    const tipLength = this.tipLength;
-    const tipPath = new Path2D();
-    tipPath.moveTo(startX + bodyLength, 0);
-    tipPath.lineTo(startX + bodyLength + tipLength, -bodyWidth * 0.4);
-    tipPath.lineTo(startX + bodyLength + tipLength, bodyWidth * 0.4);
-    tipPath.closePath();
-    const tipGrad = ctx.createLinearGradient(
-      startX + bodyLength,
-      0,
-      startX + bodyLength + tipLength,
-      0
-    );
-    tipGrad.addColorStop(0, "#c96d32");
-    tipGrad.addColorStop(1, "#a44e1a");
-    ctx.fillStyle = tipGrad;
-    ctx.fill(tipPath);
-    ctx.stroke(tipPath);
+    // Reinforced girders for width
+    const girderThickness = bodyWidth * 0.2;
+    const girderLength = bodyLength * 0.6;
+    const girderX = startX + bodyLength * 0.12;
+    ctx.fillStyle = "#272c35";
+    ctx.fillRect(girderX, -bodyWidth / 2 - girderThickness, girderLength, girderThickness);
+    ctx.fillRect(girderX, bodyWidth / 2, girderLength, girderThickness);
 
-    ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    ctx.lineWidth = 2;
+    // Panel seams
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 3;
     ctx.beginPath();
-    ctx.moveTo(startX + bodyLength * 0.1, -bodyWidth * 0.3);
-    ctx.lineTo(startX + bodyLength * 0.8, -bodyWidth * 0.3);
+    ctx.moveTo(startX + bodyLength * 0.08, -bodyWidth * 0.3);
+    ctx.lineTo(startX + bodyLength * 0.92, -bodyWidth * 0.3);
+    ctx.moveTo(startX + bodyLength * 0.08, bodyWidth * 0.3);
+    ctx.lineTo(startX + bodyLength * 0.75, bodyWidth * 0.3);
     ctx.stroke();
 
-    const lightY = -bodyWidth * 0.8;
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = "rgba(0,0,0,0.4)";
     ctx.beginPath();
-    ctx.arc(startX + bodyLength * 0.2, lightY, bodyWidth * 0.15, 0, Math.PI * 2);
-    ctx.fillStyle = "#ffe29a";
-    ctx.shadowColor = "#ffd986";
-    ctx.shadowBlur = 8;
+    ctx.moveTo(startX + bodyLength * 0.05, 0);
+    ctx.lineTo(startX + bodyLength * 0.95, 0);
+    ctx.stroke();
+
+    // Rivets
+    ctx.fillStyle = "#c4cbd8";
+    const rivetRows = [-bodyWidth * 0.38, bodyWidth * 0.35];
+    for (const ry of rivetRows) {
+      for (let i = 0; i < 4; i += 1) {
+        const rx = startX + bodyLength * (0.2 + i * 0.18);
+        ctx.beginPath();
+        ctx.arc(rx, ry, bodyWidth * 0.035, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Front collar giving bulk
+    const tipLength = this.tipLength;
+    const tipStart = startX + bodyLength;
+    ctx.fillStyle = "#323843";
+    ctx.beginPath();
+    ctx.ellipse(tipStart - bodyWidth * 0.15, 0, bodyWidth * 0.6, bodyWidth * 0.55, 0, 0, Math.PI * 2);
     ctx.fill();
+    ctx.strokeStyle = "#151920";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
+    // Hollow excavation mouth
+    const chewPulse = 1 + Math.sin(this.animTime * 7) * 0.08;
+    const mouthOuter = bodyWidth * 0.65 * chewPulse;
+    const mouthInner = bodyWidth * 0.35 * chewPulse;
+    const mouthDepth = tipLength * 0.6;
+    const mouthX = tipStart + mouthDepth * 0.4;
+    ctx.fillStyle = "#120a0d";
+    ctx.beginPath();
+    ctx.ellipse(mouthX, 0, mouthOuter, mouthOuter * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    const cavityGrad = ctx.createRadialGradient(
+      mouthX - mouthOuter * 0.3,
+      -mouthOuter * 0.2,
+      mouthInner * 0.3,
+      mouthX,
+      0,
+      mouthOuter
+    );
+    cavityGrad.addColorStop(0, "#3a1d14");
+    cavityGrad.addColorStop(0.6, "#1c0d0f");
+    cavityGrad.addColorStop(1, "#060003");
+    ctx.fillStyle = cavityGrad;
+    ctx.beginPath();
+    ctx.ellipse(mouthX, 0, mouthOuter * 0.9, mouthOuter * 0.75, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Teeth
+    const toothCount = 10;
+    ctx.fillStyle = "#f9d2a4";
+    ctx.strokeStyle = "#62311c";
+    ctx.lineWidth = 1;
+    for (let i = 0; i < toothCount; i += 1) {
+      const angle = (i / toothCount) * Math.PI * 1.3 - Math.PI * 0.65;
+      const pulseOffset = Math.sin(this.animTime * 9 + angle * 2) * bodyWidth * 0.02;
+      const px = mouthX + Math.cos(angle) * mouthOuter * 0.8;
+      const py = Math.sin(angle) * mouthOuter * 0.6 + pulseOffset;
+      const toothWidth = bodyWidth * 0.1;
+      const toothHeight = bodyWidth * 0.2;
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px + Math.cos(angle) * toothHeight, py + Math.sin(angle) * toothHeight);
+      ctx.lineTo(
+        px + Math.cos(angle + Math.PI / 2) * toothWidth,
+        py + Math.sin(angle + Math.PI / 2) * toothWidth
+      );
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+
+    // Inner grinder paddles
+    ctx.strokeStyle = "#c78856";
+    ctx.lineWidth = 2;
+    const spin = this.animTime * 6;
+    for (let i = 0; i < 4; i += 1) {
+      const angle = spin + (i / 4) * Math.PI * 2;
+      const innerX = mouthX + Math.cos(angle) * mouthInner * 0.4;
+      const innerY = Math.sin(angle) * mouthInner * 0.4;
+      ctx.beginPath();
+      ctx.moveTo(innerX, innerY);
+      ctx.lineTo(
+        mouthX + Math.cos(angle) * mouthInner,
+        Math.sin(angle) * mouthInner
+      );
+      ctx.stroke();
+    }
+
+    // Headlamp mounted lower to emphasize bulk
+    const lightY = -bodyWidth * 0.5;
+    ctx.beginPath();
+    ctx.arc(startX + bodyLength * 0.3, lightY, bodyWidth * 0.16, 0, Math.PI * 2);
+    const glowGrad = ctx.createRadialGradient(
+      startX + bodyLength * 0.3,
+      lightY,
+      0,
+      startX + bodyLength * 0.3,
+      lightY,
+      bodyWidth * 0.16
+    );
+    glowGrad.addColorStop(0, "#fff5c0");
+    glowGrad.addColorStop(1, "#ffc85b");
+    ctx.fillStyle = glowGrad;
+    ctx.shadowColor = "rgba(255,210,120,0.65)";
+    ctx.shadowBlur = 5;
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
     ctx.restore();
   }
 }
@@ -1232,9 +1341,10 @@ class PlayState {
   }
 
   handlePelletCollected() {
-    this.score += 10;
-    if (this.level.pelletCount === 0) {
+    this.score += 50;
+    if (!this.levelComplete && this.level.pelletCount === 0) {
       this.levelComplete = true;
+      this.score += LEVEL_COMPLETE_BONUS;
     }
   }
 
@@ -1297,7 +1407,7 @@ class PlayState {
           this.handleLifeLost();
           return true;
         }
-        this.score += 50;
+        this.score += 10;
         enemy.handleDestroyed();
         continue;
       }
