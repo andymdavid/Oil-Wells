@@ -2239,7 +2239,8 @@ class PlayState {
 
       if (this.remainingTime <= 0 && !this.timeExpired) {
         this.timeExpired = true;
-        this.handleLifeLost();
+        soundManager.stopDrillExtend();
+        this.game.setState(new GameOverState(this.game, this.score));
         return;
       }
     }
@@ -2331,33 +2332,30 @@ class PlayState {
     ctx.textAlign = "left";
     ctx.fillText(`Score: ${this.score}`, 20, hudCenterY);
 
+    ctx.font = "12px 'Segoe UI', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#f4f6f8aa";
+    ctx.fillText("Arrows: move  |  Space: retract  |  M: mute", 20, hudCenterY + 18);
+
+    ctx.font = "14px 'Segoe UI', sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#f4f6f8";
+    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
+
+    // Timer underneath Lives on the right
     const time = Math.max(0, this.remainingTime);
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60)
       .toString()
       .padStart(2, "0");
-    ctx.textAlign = "center";
-    const timeColor = time < 30 ? "#ff6868" : "#111";
+    const timeColor = time < 30 ? "#ff6868" : "#f4f6f8";
     ctx.fillStyle = timeColor;
-    ctx.font = "bold 16px 'Segoe UI', sans-serif";
-    ctx.fillText(`Time: ${minutes}:${seconds}`, this.game.canvas.width / 2, hudCenterY);
-    ctx.font = "14px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#f4f6f8";
+    ctx.fillText(`Time: ${minutes}:${seconds}`, this.game.canvas.width - 20, hudCenterY + 18);
 
-    ctx.font = "12px 'Segoe UI', sans-serif";
-    ctx.textAlign = "left";
-    ctx.fillStyle = "#f4f6f8aa";
-    ctx.fillText("Arrows: move  |  Space: retract  |  M: mute", 20, hudCenterY + 18);
-    ctx.font = "14px 'Segoe UI', sans-serif";
-    ctx.fillStyle = "#f4f6f8";
-
-    ctx.textAlign = "right";
-    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
-
-    // Mute indicator
+    // Mute indicator underneath timer
     if (soundManager.muted) {
       ctx.fillStyle = "#ff6868";
-      ctx.fillText("🔇 MUTED", this.game.canvas.width - 20, hudCenterY + 18);
+      ctx.fillText("🔇 MUTED", this.game.canvas.width - 20, hudCenterY + 36);
     }
 
     if (this.levelComplete) {
