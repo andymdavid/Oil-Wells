@@ -42,16 +42,27 @@ class Level {
     this.offsetY = Math.max(0, Math.floor((canvasHeight - gridHeight) / 2));
 
     this.pelletCount = 0;
-    this.enemyLanes = [];
+    this.enemyLaneData = new Map();
     for (let y = 0; y < this.height; y += 1) {
+      let rowOpenCount = 0;
+      let minX = this.width;
+      let maxX = -1;
       for (let x = 0; x < this.width; x += 1) {
         const tile = this.tiles[y][x];
         if (tile === "O") {
           this.pelletCount += 1;
-        } else if (tile === "E") {
-          this.enemyLanes.push({ x, y });
+        }
+        if (tile !== "#") {
+          rowOpenCount += 1;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+        }
+        if (tile === "E") {
           this.tiles[y][x] = ".";
         }
+      }
+      if (rowOpenCount > this.width * 0.6) {
+        this.enemyLaneData.set(y, { yTile: y, minX, maxX });
       }
     }
 
@@ -136,10 +147,16 @@ class Level {
   }
 
   getEnemyLanes() {
-    const lanes = this.enemyLanes.map(({ x, y }) =>
-      this.tileToPixelCenter(x, y).y
-    );
-    return [...new Set(lanes)];
+    if (!this.enemyLaneInfo) {
+      this.enemyLaneInfo = Array.from(this.enemyLaneData.values()).map(
+        ({ yTile, minX, maxX }) => ({
+          y: this.tileToPixelCenter(0, yTile).y,
+          leftX: this.tileToPixelCenter(minX, yTile).x,
+          rightX: this.tileToPixelCenter(maxX, yTile).x,
+        })
+      );
+    }
+    return this.enemyLaneInfo;
   }
 
   getEntryTile() {
@@ -275,6 +292,16 @@ class Drill {
     this.lastForwardX = 0;
     this.lastForwardY = 0;
     this.tileTrail = [];
+
+    // Precompute geometry used for rendering and collisions.
+    this.bodyLength = this.radius * 3.6;
+    this.bodyWidth = this.radius * 1.4;
+    this.tipLength = this.bodyWidth * 0.9;
+    this.bodyStartOffset = -this.bodyLength * 0.3;
+    this.bodyEndOffset = this.bodyStartOffset + this.bodyLength;
+    this.tipEndOffset = this.bodyEndOffset + this.tipLength;
+    this.headCollisionStartOffset = this.bodyEndOffset - this.bodyWidth * 0.4;
+    this.headCollisionRadius = this.bodyWidth * 0.45;
   }
 
   setDirection(dx, dy) {
@@ -624,6 +651,22 @@ class Drill {
     this.facingAngle = Math.atan2(dy, dx);
   }
 
+  collidesWithHead(enemyX, enemyY, enemyRadius) {
+    const centerDist = Math.hypot(enemyX - this.x, enemyY - this.y);
+    if (centerDist <= enemyRadius + this.radius) {
+      return true;
+    }
+
+    const ux = Math.cos(this.facingAngle);
+    const uy = Math.sin(this.facingAngle);
+    const startX = this.x + ux * this.headCollisionStartOffset;
+    const startY = this.y + uy * this.headCollisionStartOffset;
+    const endX = this.x + ux * this.tipEndOffset;
+    const endY = this.y + uy * this.tipEndOffset;
+    const dist = distancePointToSegment(enemyX, enemyY, startX, startY, endX, endY);
+    return dist <= enemyRadius + this.headCollisionRadius;
+  }
+
   renderPipe(ctx) {
     if (this.pipePoints.length < 1) {
       return;
@@ -668,9 +711,9 @@ class Drill {
     ctx.save();
     ctx.translate(this.x, this.y);
     ctx.rotate(this.facingAngle);
-    const bodyLength = this.radius * 3.6;
-    const bodyWidth = this.radius * 1.4;
-    const startX = -bodyLength * 0.3;
+    const bodyLength = this.bodyLength;
+    const bodyWidth = this.bodyWidth;
+    const startX = this.bodyStartOffset;
     const bodyPath = new Path2D();
     bodyPath.roundRect(startX, -bodyWidth / 2, bodyLength, bodyWidth, bodyWidth / 2);
     const bodyGrad = ctx.createLinearGradient(startX, 0, startX + bodyLength, 0);
@@ -683,7 +726,7 @@ class Drill {
     ctx.strokeStyle = "#21242b";
     ctx.stroke(bodyPath);
 
-    const tipLength = bodyWidth * 0.9;
+    const tipLength = this.tipLength;
     const tipPath = new Path2D();
     tipPath.moveTo(startX + bodyLength, 0);
     tipPath.lineTo(startX + bodyLength + tipLength, -bodyWidth * 0.4);
@@ -720,37 +763,58 @@ class Drill {
 }
 
 class Enemy {
-  constructor(level, laneY, direction, speed, canvasWidth) {
+  constructor(
+    level,
+    spawnPoint,
+    direction,
+    speed,
+    canvasWidth,
+    type = "01",
+    spawnDelay = 0
+  ) {
     this.level = level;
-    this.laneY = laneY;
+    this.spawnPoint = spawnPoint;
     this.initialDirection = direction;
     this.direction = direction;
+    this.baseSpeed = speed;
     this.speed = speed;
     this.canvasWidth = canvasWidth;
-    this.spawnMargin = 80;
+    this.spawnMargin = 100;
     this.radius = Math.max(8, level.tileSize * 0.25);
-    this.colorBody = "#ff8f8f";
-    this.colorShadow = "#b43e4b";
-    this.active = true;
-    this.respawnTimer = 0;
-    this.reset();
+    this.type = type;
+    this.active = false;
+    this.respawnTimer = spawnDelay;
+    this.activateIfReady();
   }
 
   startPosition() {
     return this.direction > 0
-      ? -this.spawnMargin
-      : this.canvasWidth + this.spawnMargin;
+      ? Math.max(-this.spawnMargin, this.spawnPoint.x - this.spawnMargin)
+      : Math.min(this.canvasWidth + this.spawnMargin, this.spawnPoint.x + this.spawnMargin);
   }
 
-  reset() {
-    this.direction = this.initialDirection;
-    this.x = this.startPosition();
-    this.y = this.laneY;
-    this.active = true;
-    this.respawnTimer = 0;
+  activateIfReady() {
+    if (this.respawnTimer <= 0) {
+      this.active = true;
+      this.direction = this.initialDirection;
+      this.speed = this.baseSpeed + Math.random() * 20;
+      this.x = this.startPosition();
+      this.y = this.spawnPoint.y;
+      this.respawnTimer = 0;
+    }
   }
 
-  scheduleRespawn(delay = 0.5) {
+  reset(initialDelay = 0) {
+    this.respawnTimer = Math.max(0, initialDelay);
+    this.active = false;
+    this.activateIfReady();
+  }
+
+  randomRespawnDelay() {
+    return 4 + Math.random() * 2;
+  }
+
+  scheduleRespawn(delay = this.randomRespawnDelay()) {
     this.active = false;
     this.respawnTimer = delay;
   }
@@ -758,14 +822,12 @@ class Enemy {
   update(dt) {
     if (!this.active) {
       this.respawnTimer -= dt;
-      if (this.respawnTimer <= 0) {
-        this.reset();
-      }
+      this.activateIfReady();
       return;
     }
 
     this.x += this.direction * this.speed * dt;
-    this.y = this.laneY;
+    this.y = this.spawnPoint.y;
 
     if (this.direction > 0 && this.x > this.canvasWidth + this.spawnMargin) {
       this.scheduleRespawn();
@@ -775,7 +837,7 @@ class Enemy {
   }
 
   handleDestroyed() {
-    this.scheduleRespawn(1.5);
+    this.scheduleRespawn(5 + Math.random() * 2);
   }
 
   render(ctx) {
@@ -786,46 +848,72 @@ class Enemy {
     ctx.translate(this.x, this.y);
     const bodyWidth = this.radius * 1.6;
     const bodyHeight = this.radius * 1.1;
-    const bodyGrad = ctx.createLinearGradient(0, -bodyHeight, 0, bodyHeight);
-    bodyGrad.addColorStop(0, this.colorBody);
-    bodyGrad.addColorStop(1, this.colorShadow);
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.ellipse(0, 0, bodyWidth, bodyHeight, 0, 0, Math.PI * 2);
-    ctx.fill();
 
-    ctx.fillStyle = this.colorShadow;
-    ctx.beginPath();
-    ctx.ellipse(0, bodyHeight * 0.7, bodyWidth * 0.7, bodyHeight * 0.25, 0, 0, Math.PI * 2);
-    ctx.fill();
+    if (this.type === "02") {
+      const segments = 6;
+      const segmentLength = bodyWidth;
+      ctx.strokeStyle = "#581f24";
+      ctx.lineWidth = this.radius * 0.8;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(-segmentLength * 0.5, 0);
+      ctx.quadraticCurveTo(0, -bodyHeight * 0.4, segmentLength * 0.5, 0);
+      ctx.stroke();
 
-    ctx.fillStyle = bodyGrad;
-    ctx.beginPath();
-    ctx.ellipse(-bodyWidth * 0.6, -bodyHeight, bodyWidth * 0.18, bodyWidth * 0.25, 0, 0, Math.PI, true);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(bodyWidth * 0.6, -bodyHeight, bodyWidth * 0.18, bodyWidth * 0.25, 0, 0, Math.PI, true);
-    ctx.fill();
+      ctx.strokeStyle = "#8c3a42";
+      ctx.lineWidth = this.radius * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(-segmentLength * 0.5, 0);
+      ctx.quadraticCurveTo(0, bodyHeight * 0.4, segmentLength * 0.5, 0);
+      ctx.stroke();
 
+      ctx.fillStyle = "#ffe29a";
+      ctx.beginPath();
+      ctx.arc(-segmentLength * 0.6, 0, this.radius * 0.25, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#5c2a2d";
+      ctx.beginPath();
+      ctx.arc(-segmentLength * 0.6, 0, this.radius * 0.12, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      const abdomen = bodyWidth * 0.8;
+      const cephalothorax = bodyWidth * 0.5;
+      ctx.fillStyle = "#6a4f4f";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, abdomen, bodyHeight, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#3c2a2a";
+      ctx.beginPath();
+      ctx.ellipse(-abdomen * 0.6, -bodyHeight * 0.2, cephalothorax, bodyHeight * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#f8f8f8";
+      ctx.beginPath();
+      ctx.arc(-abdomen * 0.8, -bodyHeight * 0.35, this.radius * 0.2, 0, Math.PI * 2);
+      ctx.arc(-abdomen * 0.45, -bodyHeight * 0.35, this.radius * 0.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#111";
+      ctx.beginPath();
+      ctx.arc(-abdomen * 0.8, -bodyHeight * 0.35, this.radius * 0.1, 0, Math.PI * 2);
+      ctx.arc(-abdomen * 0.45, -bodyHeight * 0.35, this.radius * 0.1, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#3f2d2d";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      const legLength = abdomen * 0.9;
+      for (let i = -1; i <= 1; i += 0.5) {
+        ctx.moveTo(0, bodyHeight * 0.4 * i);
+        ctx.lineTo(legLength * 0.5, bodyHeight * 0.8 * i);
+        ctx.moveTo(0, bodyHeight * 0.4 * i);
+        ctx.lineTo(-legLength * 0.5, bodyHeight * 0.8 * i);
+      }
+      ctx.stroke();
+    }
     ctx.fillStyle = "#fff";
-    ctx.beginPath();
-    ctx.arc(-bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.25, 0, Math.PI * 2);
-    ctx.arc(bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.25, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#222";
-    ctx.beginPath();
-    ctx.arc(-bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.12, 0, Math.PI * 2);
-    ctx.arc(bodyWidth * 0.25, -bodyHeight * 0.2, this.radius * 0.12, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.strokeStyle = "#762032";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-bodyWidth * 0.2, bodyHeight * 0.5);
-    ctx.lineTo(-bodyWidth * 0.5, bodyHeight * 0.9);
-    ctx.moveTo(bodyWidth * 0.2, bodyHeight * 0.5);
-    ctx.lineTo(bodyWidth * 0.5, bodyHeight * 0.9);
-    ctx.stroke();
+    ctx.font = "10px 'Segoe UI', sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(this.type, 0, -this.radius * 1.4);
     ctx.restore();
   }
 }
@@ -869,16 +957,43 @@ class PlayState {
     this.startTile = this.level.getEntryTile();
     this.wellPosition = this.level.getWellPosition();
     this.drill = this.createDrill();
-    const lanes = this.level.getEnemyLanes();
-    this.enemies = lanes.map((laneY, index) =>
-      new Enemy(
-        this.level,
-        laneY,
-        index % 2 === 0 ? 1 : -1,
-        70 + Math.random() * 60,
-        this.game.canvas.width
-      )
+    const laneInfos = this.level.getEnemyLanes();
+    const sortedLanes = [...laneInfos].sort((a, b) => a.y - b.y);
+    const hazardLaneCount = Math.max(1, Math.round(sortedLanes.length * 0.2));
+    const hazardLaneKeys = new Set(
+      sortedLanes
+        .slice(sortedLanes.length - hazardLaneCount)
+        .map((lane) => lane.y)
     );
+
+    const enemyConfigs = [];
+    sortedLanes.forEach((lane, index) => {
+      const laneType = hazardLaneKeys.has(lane.y) ? "02" : "01";
+      enemyConfigs.push({
+        spawn: { x: lane.leftX, y: lane.y },
+        direction: 1,
+        delay: (index % 4) * 1.5 + Math.random(),
+        type: laneType,
+      });
+      enemyConfigs.push({
+        spawn: { x: lane.rightX, y: lane.y },
+        direction: -1,
+        delay: 3 + (index % 3) * 1.2 + Math.random(),
+        type: laneType,
+      });
+    });
+
+    this.enemies = enemyConfigs.map((config) => {
+      return new Enemy(
+        this.level,
+        config.spawn,
+        config.direction,
+        60 + Math.random() * 40,
+        this.game.canvas.width,
+        config.type,
+        config.delay
+      );
+    });
   }
 
   update(dt) {
@@ -1010,10 +1125,11 @@ class PlayState {
       if (!enemy.active) {
         continue;
       }
-      const dx = enemy.x - this.drill.x;
-      const dy = enemy.y - this.drill.y;
-      const dist = Math.hypot(dx, dy);
-      if (dist <= enemy.radius + this.drill.radius) {
+      if (this.drill.collidesWithHead(enemy.x, enemy.y, enemy.radius)) {
+        if (enemy.type === "02") {
+          this.handleLifeLost();
+          return true;
+        }
         this.score += 50;
         enemy.handleDestroyed();
         continue;
