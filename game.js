@@ -13,23 +13,23 @@ class Level {
   constructor(canvasWidth, canvasHeight) {
     this.tileSize = 32;
     const rawMap = [
-      "########################",
-      "#..O....E....O....E....#",
-      "###.#######.#######.####",
-      "#...O..E...O...E....O..#",
-      "######.########.########",
-      "#..E....O....E....O....#",
-      "####.########.######.###",
-      "#....O....E....O....E..#",
-      "#######.#########.######",
-      "#..O...E....O...E....O.#",
-      "#####.####.#######.#####",
-      "#....E....O....E....O..#",
-      "########.#######.#######",
-      "#..E....O....E....O....#",
-      "####.#######.########.##",
-      "#....O....E....O....E..#",
-      "########################",
+      "##############################",
+      "..O....E....O....E....O.......",
+      "###.#######.#########.########",
+      "..O..E....O...E....O..E.......",
+      "######.#########.#######.#####",
+      "..E....O....E....O....E.......",
+      "#####.########.#######.#######",
+      "....O....E....O....E....O.....",
+      "########.#########.###########",
+      "..O...E....O...E....O...E.....",
+      "####.########.#####.#####.####",
+      "....E....O....E....O....E.....",
+      "#######.#######.#######.######",
+      "..E....O....E....O....E.......",
+      "#####.######.#######.#########",
+      "....O....E....O....E....O.....",
+      "##############################",
     ];
 
     this.tiles = rawMap.map((row) => row.split(""));
@@ -171,7 +171,6 @@ class Level {
     ctx.fillRect(0, this.offsetY, width, height - this.offsetY);
 
     ctx.save();
-    ctx.lineJoin = "round";
     const tunnelInset = -Math.max(2, this.tileSize * 0.08);
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
@@ -189,16 +188,39 @@ class Level {
         const tunnelHeight = this.tileSize - tunnelInset * 2;
         const rx = px + tunnelInset;
         const ry = py + tunnelInset;
+        const radius = Math.min(12, this.tileSize * 0.35);
+        const neighbors = {
+          left: x > 0 && this.tiles[y][x - 1] !== "#",
+          right: x < this.width - 1 && this.tiles[y][x + 1] !== "#",
+          up: y > 0 && this.tiles[y - 1][x] !== "#",
+          down: y < this.height - 1 && this.tiles[y + 1][x] !== "#",
+        };
+
+        const isVerticalOnly =
+          (neighbors.up || neighbors.down) && !neighbors.left && !neighbors.right;
+
+        const radii = {
+          tl: neighbors.up || neighbors.left ? 0 : radius,
+          tr: neighbors.up || neighbors.right ? 0 : radius,
+          br: neighbors.down || neighbors.right ? 0 : radius,
+          bl: neighbors.down || neighbors.left ? 0 : radius,
+        };
+
+        if (isVerticalOnly) {
+          radii.tl = radii.tr = radii.br = radii.bl = 0;
+        }
+
         const path = new Path2D();
-        const radius = Math.min(10, this.tileSize * 0.35);
-        path.roundRect(rx, ry, tunnelWidth, tunnelHeight, radius);
+        addRoundedRectPath(path, rx, ry, tunnelWidth, tunnelHeight, radii);
         const tunnelGrad = ctx.createLinearGradient(rx, ry, rx, ry + tunnelHeight);
         tunnelGrad.addColorStop(0, "#4a3d33");
         tunnelGrad.addColorStop(1, "#2e241e");
         ctx.fillStyle = tunnelGrad;
         ctx.fill(path);
         ctx.fillStyle = "rgba(255,255,255,0.08)";
-        ctx.fillRect(rx, ry, tunnelWidth, 2);
+        ctx.fillRect(rx + 2, ry + 1, tunnelWidth - 4, 2);
+        ctx.fillStyle = "rgba(0,0,0,0.25)";
+        ctx.fillRect(rx + 2, ry + tunnelHeight - 3, tunnelWidth - 4, 2);
 
         if (tile === "O") {
           const cx = px + this.tileSize / 2;
@@ -1119,6 +1141,28 @@ function distancePointToSegment(px, py, ax, ay, bx, by) {
   const dx = px - closestX;
   const dy = py - closestY;
   return Math.hypot(dx, dy);
+}
+
+function addRoundedRectPath(path, x, y, width, height, radii) {
+  const { tl = 0, tr = 0, br = 0, bl = 0 } = radii;
+  path.moveTo(x + tl, y);
+  path.lineTo(x + width - tr, y);
+  tr
+    ? path.quadraticCurveTo(x + width, y, x + width, y + tr)
+    : path.lineTo(x + width, y);
+  path.lineTo(x + width, y + height - br);
+  br
+    ? path.quadraticCurveTo(x + width, y + height, x + width - br, y + height)
+    : path.lineTo(x + width, y + height);
+  path.lineTo(x + bl, y + height);
+  bl
+    ? path.quadraticCurveTo(x, y + height, x, y + height - bl)
+    : path.lineTo(x, y + height);
+  path.lineTo(x, y + tl);
+  tl
+    ? path.quadraticCurveTo(x, y, x + tl, y)
+    : path.lineTo(x, y);
+  path.closePath();
 }
 
 class Game {
