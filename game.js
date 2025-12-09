@@ -36,6 +36,7 @@ class Level {
     this.tiles = rawMap.map((row) => row.split(""));
     this.height = this.tiles.length;
     this.width = this.tiles[0].length;
+    this.coinSpin = 0;
 
     const gridWidth = this.width * this.tileSize;
     const gridHeight = this.height * this.tileSize;
@@ -291,27 +292,75 @@ class Level {
         ctx.fillRect(rx + 2, ry + tunnelHeight - 3, tunnelWidth - 4, 2);
 
         if (tile === "O") {
-          const cx = px + this.tileSize / 2;
-          const cy = py + this.tileSize / 2;
-          const glow = ctx.createRadialGradient(
-            cx,
-            cy,
-            2,
-            cx,
-            cy,
-            this.tileSize * 0.4
-          );
-          glow.addColorStop(0, "#ffe69f");
-          glow.addColorStop(0.4, "#f5a623");
-          glow.addColorStop(1, "rgba(245,166,35,0)");
-          ctx.fillStyle = glow;
-          ctx.beginPath();
-          ctx.arc(cx, cy, this.tileSize * 0.3, 0, Math.PI * 2);
-          ctx.fill();
+          this.renderCoin(ctx, px, py, x, y);
         }
       }
     }
     ctx.restore();
+  }
+
+  renderCoin(ctx, px, py, tileX, tileY) {
+    const cx = px + this.tileSize / 2;
+    const cy = py + this.tileSize / 2;
+    const baseRadius = this.tileSize * 0.32;
+    const wobble = Math.abs(
+      Math.sin(this.coinSpin + (tileX + tileY) * 0.4)
+    );
+    const scaleX = 0.45 + wobble * 0.35;
+    const scaleY = 0.55 - wobble * 0.25;
+
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.scale(scaleX, scaleY);
+
+    const coinGrad = ctx.createRadialGradient(0, -baseRadius * 0.2, baseRadius * 0.2, 0, 0, baseRadius);
+    coinGrad.addColorStop(0, "#ffe7a2");
+    coinGrad.addColorStop(0.6, "#f1b34d");
+    coinGrad.addColorStop(1, "#c4792c");
+    ctx.fillStyle = coinGrad;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, baseRadius, baseRadius, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.lineWidth = 4;
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, baseRadius * 0.85, baseRadius * 0.85, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#8c4d1c";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, baseRadius * 0.95, baseRadius * 0.95, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.fillStyle = "#fff";
+    ctx.font = `bold ${baseRadius * 1.5}px 'Segoe UI', sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.scale(1 / scaleX, 1 / scaleY); // revert scale for text width consistency
+    ctx.fillText("₿", 0, 0);
+
+    ctx.restore();
+
+    const glow = ctx.createRadialGradient(
+      cx,
+      cy,
+      2,
+      cx,
+      cy,
+      this.tileSize * 0.5
+    );
+    glow.addColorStop(0, "rgba(255,214,120,0.8)");
+    glow.addColorStop(1, "rgba(255,207,92,0)");
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, this.tileSize * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  update(dt) {
+    this.coinSpin = (this.coinSpin + dt * 4) % (Math.PI * 2);
   }
 
   renderTree(ctx, width, horizonHeight, terrainHeight) {
@@ -1411,6 +1460,7 @@ class PlayState {
   }
 
   update(dt) {
+    this.level.update(dt);
     this.drill.update(dt);
     for (const enemy of this.enemies) {
       enemy.update(dt);
@@ -1488,9 +1538,6 @@ class PlayState {
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     ctx.fillText(`Score: ${this.score}`, 20, hudCenterY);
-
-    ctx.textAlign = "center";
-    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, hudCenterY);
 
     ctx.textAlign = "right";
     ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
