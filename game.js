@@ -1411,77 +1411,458 @@ class Enemy {
 class MenuState {
   constructor(game) {
     this.game = game;
+    this.animTime = 0;
+    this.sunPulse = 0;
+    this.cableOffset = 0;
+
+    // Particle system for atmospheric depth
+    this.particles = [];
+    for (let i = 0; i < 30; i++) {
+      this.particles.push({
+        x: Math.random() * game.canvas.width,
+        y: Math.random() * game.canvas.height * 0.5,
+        size: Math.random() * 2 + 0.5,
+        speed: Math.random() * 15 + 5,
+        opacity: Math.random() * 0.4 + 0.1,
+        twinkleSpeed: Math.random() * 2 + 1,
+      });
+    }
+
+    // Stars
+    this.stars = [];
+    for (let i = 0; i < 50; i++) {
+      this.stars.push({
+        x: Math.random() * game.canvas.width,
+        y: Math.random() * game.canvas.height * 0.35,
+        size: Math.random() * 1.5 + 0.5,
+        brightness: Math.random(),
+        twinkleSpeed: Math.random() * 3 + 1,
+      });
+    }
   }
 
   update(dt) {
-    // No menu updates yet, but keep the method for consistency.
+    this.animTime += dt;
+    this.sunPulse = Math.sin(this.animTime * 0.8) * 0.1 + 1;
+    this.cableOffset = (this.cableOffset + dt * 30) % 50;
+
+    // Update particles (dust motes floating upward)
+    for (const particle of this.particles) {
+      particle.y -= particle.speed * dt;
+      if (particle.y < 0) {
+        particle.y = this.game.canvas.height * 0.5;
+        particle.x = Math.random() * this.game.canvas.width;
+      }
+    }
   }
 
   render(ctx) {
     const { width, height } = this.game.canvas;
     const skyHeight = height * 0.5;
+
+    // Enhanced sky gradient with deeper colors
     const skyGradient = ctx.createLinearGradient(0, 0, 0, skyHeight);
-    skyGradient.addColorStop(0, "#05070f");
-    skyGradient.addColorStop(0.4, "#0f1e34");
-    skyGradient.addColorStop(0.8, "#d59c57");
+    skyGradient.addColorStop(0, "#020408");
+    skyGradient.addColorStop(0.3, "#0a1525");
+    skyGradient.addColorStop(0.6, "#1a2f4a");
+    skyGradient.addColorStop(0.85, "#c89550");
+    skyGradient.addColorStop(1, "#e6a55d");
     ctx.fillStyle = skyGradient;
     ctx.fillRect(0, 0, width, skyHeight);
 
+    // Stars in the dark sky
+    ctx.save();
+    for (const star of this.stars) {
+      const twinkle = Math.sin(this.animTime * star.twinkleSpeed + star.brightness * Math.PI) * 0.3 + 0.7;
+      ctx.fillStyle = `rgba(255, 255, 255, ${star.brightness * twinkle * 0.8})`;
+      ctx.beginPath();
+      ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Enhanced pulsing sun with multiple glow layers
     const sunX = width * 0.5;
-    const sunY = skyHeight * 0.35;
-    const sunRadius = skyHeight * 0.18;
-    const sunGrad = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.2, sunX, sunY, sunRadius);
-    sunGrad.addColorStop(0, "#fffad2");
-    sunGrad.addColorStop(1, "rgba(255,210,120,0)");
+    const sunY = skyHeight * 0.3;
+    const sunRadius = skyHeight * 0.22;
+
+    // Outer glow (pulsing)
+    const outerGlowRadius = sunRadius * this.sunPulse * 1.6;
+    const outerGlow = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.3, sunX, sunY, outerGlowRadius);
+    outerGlow.addColorStop(0, "rgba(255, 250, 210, 0.3)");
+    outerGlow.addColorStop(0.5, "rgba(255, 220, 150, 0.15)");
+    outerGlow.addColorStop(1, "rgba(255, 200, 120, 0)");
+    ctx.fillStyle = outerGlow;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, outerGlowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Middle glow
+    const midGlowRadius = sunRadius * 1.3;
+    const midGlow = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.2, sunX, sunY, midGlowRadius);
+    midGlow.addColorStop(0, "rgba(255, 245, 200, 0.6)");
+    midGlow.addColorStop(0.7, "rgba(255, 210, 130, 0.3)");
+    midGlow.addColorStop(1, "rgba(255, 200, 120, 0)");
+    ctx.fillStyle = midGlow;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, midGlowRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Core sun
+    const sunGrad = ctx.createRadialGradient(
+      sunX - sunRadius * 0.2,
+      sunY - sunRadius * 0.2,
+      sunRadius * 0.1,
+      sunX,
+      sunY,
+      sunRadius
+    );
+    sunGrad.addColorStop(0, "#fffef5");
+    sunGrad.addColorStop(0.4, "#fff7d2");
+    sunGrad.addColorStop(0.8, "#ffd89f");
+    sunGrad.addColorStop(1, "rgba(255, 200, 100, 0.8)");
     ctx.fillStyle = sunGrad;
     ctx.beginPath();
     ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "#513320";
+    // Layered terrain with atmospheric perspective
+    // Distant hills (lighter)
+    ctx.fillStyle = "rgba(100, 70, 50, 0.4)";
     ctx.beginPath();
-    ctx.moveTo(0, skyHeight * 0.8);
-    ctx.quadraticCurveTo(width * 0.2, skyHeight * 0.6, width * 0.45, skyHeight * 0.75);
-    ctx.quadraticCurveTo(width * 0.7, skyHeight * 0.9, width, skyHeight * 0.7);
+    ctx.moveTo(0, skyHeight * 0.75);
+    ctx.quadraticCurveTo(width * 0.15, skyHeight * 0.68, width * 0.3, skyHeight * 0.72);
+    ctx.quadraticCurveTo(width * 0.5, skyHeight * 0.78, width * 0.7, skyHeight * 0.7);
+    ctx.quadraticCurveTo(width * 0.85, skyHeight * 0.65, width, skyHeight * 0.72);
     ctx.lineTo(width, skyHeight);
     ctx.lineTo(0, skyHeight);
     ctx.closePath();
     ctx.fill();
 
+    // Middle hills
+    ctx.fillStyle = "#6b4830";
+    ctx.beginPath();
+    ctx.moveTo(0, skyHeight * 0.82);
+    ctx.quadraticCurveTo(width * 0.25, skyHeight * 0.72, width * 0.4, skyHeight * 0.78);
+    ctx.quadraticCurveTo(width * 0.6, skyHeight * 0.88, width * 0.8, skyHeight * 0.75);
+    ctx.lineTo(width, skyHeight * 0.8);
+    ctx.lineTo(width, skyHeight);
+    ctx.lineTo(0, skyHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // Foreground hills with rim lighting
+    ctx.fillStyle = "#513320";
+    ctx.beginPath();
+    ctx.moveTo(0, skyHeight * 0.85);
+    ctx.quadraticCurveTo(width * 0.2, skyHeight * 0.65, width * 0.45, skyHeight * 0.8);
+    ctx.quadraticCurveTo(width * 0.7, skyHeight * 0.92, width, skyHeight * 0.75);
+    ctx.lineTo(width, skyHeight);
+    ctx.lineTo(0, skyHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // Rim lighting on hills from sun
+    const rimGrad = ctx.createLinearGradient(0, skyHeight * 0.65, 0, skyHeight * 0.75);
+    rimGrad.addColorStop(0, "rgba(255, 200, 120, 0.3)");
+    rimGrad.addColorStop(1, "rgba(255, 200, 120, 0)");
+    ctx.fillStyle = rimGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, skyHeight * 0.85);
+    ctx.quadraticCurveTo(width * 0.2, skyHeight * 0.65, width * 0.45, skyHeight * 0.8);
+    ctx.quadraticCurveTo(width * 0.7, skyHeight * 0.92, width, skyHeight * 0.75);
+    ctx.lineTo(width, skyHeight * 0.85);
+    ctx.lineTo(0, skyHeight * 0.95);
+    ctx.closePath();
+    ctx.fill();
+
+    // Transition band to underground
+    const transitionGrad = ctx.createLinearGradient(0, skyHeight * 0.95, 0, skyHeight * 1.1);
+    transitionGrad.addColorStop(0, "rgba(81, 51, 32, 0.8)");
+    transitionGrad.addColorStop(0.5, "rgba(60, 40, 28, 0.9)");
+    transitionGrad.addColorStop(1, "#2a1a12");
+    ctx.fillStyle = transitionGrad;
+    ctx.fillRect(0, skyHeight * 0.95, width, skyHeight * 0.2);
+
+    // Underground soil with richer gradient
     const soilGrad = ctx.createLinearGradient(0, skyHeight, 0, height);
     soilGrad.addColorStop(0, "#2a1a12");
-    soilGrad.addColorStop(1, "#0f0906");
+    soilGrad.addColorStop(0.3, "#1f1410");
+    soilGrad.addColorStop(0.7, "#120d0a");
+    soilGrad.addColorStop(1, "#0a0605");
     ctx.fillStyle = soilGrad;
     ctx.fillRect(0, skyHeight, width, height - skyHeight);
 
-    ctx.fillStyle = "rgba(255,255,255,0.04)";
-    for (let i = 0; i < 6; i += 1) {
-      const angle = (i / 6) * Math.PI * 2;
-      const radius = width * 0.4;
+    // Subtle radiating rings in soil (more visible)
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+    ctx.lineWidth = 2;
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (i / 8) * Math.PI * 2;
+      const radius = width * 0.35;
       ctx.beginPath();
-      ctx.arc(width * 0.5, height, radius + i * 40, angle - 0.2, angle + 0.2);
+      ctx.arc(width * 0.5, height, radius + i * 50, angle - 0.15, angle + 0.15);
       ctx.stroke();
     }
 
+    // Render Christmas tree on the terrain
+    this.renderChristmasTree(ctx, width, height, skyHeight);
+
+    // Render enhanced well structure
+    this.renderEnhancedWell(ctx, width, height, skyHeight);
+
+    // Floating dust particles for atmosphere
     ctx.save();
-    ctx.translate(width * 0.5, skyHeight + height * 0.18);
-    ctx.fillStyle = "#5c6675";
-    ctx.fillRect(-12, -80, 24, 80);
-    ctx.fillStyle = "#dda94b";
-    ctx.fillRect(-40, -90, 80, 14);
-    ctx.fillStyle = "#272c35";
-    ctx.fillRect(-8, -40, 16, -40);
+    for (const particle of this.particles) {
+      const twinkle = Math.sin(this.animTime * particle.twinkleSpeed) * 0.3 + 0.7;
+      ctx.fillStyle = `rgba(255, 220, 180, ${particle.opacity * twinkle})`;
+      ctx.beginPath();
+      ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.restore();
 
+    // Enhanced typography
+    ctx.save();
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = "72px 'Segoe UI', Arial, sans-serif";
-    ctx.fillStyle = "#f4d67c";
-    ctx.fillText("Sats Miner", width / 2, height * 0.55);
 
-    ctx.font = "24px 'Segoe UI', Arial, sans-serif";
-    ctx.fillStyle = "#f0f2f6";
-    ctx.fillText("Press Enter to descend", width / 2, height * 0.65);
+    // Title with multiple shadow layers for depth - aligned with Christmas tree
+    const titleY = skyHeight * 0.82;
+    ctx.font = "bold 82px 'Segoe UI', Arial, sans-serif";
+
+    // Deep shadow
+    ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+    ctx.shadowBlur = 25;
+    ctx.shadowOffsetY = 8;
+    ctx.fillStyle = "#000";
+    ctx.fillText("Sats Miner", width / 2, titleY);
+
+    // Gold glow
+    ctx.shadowColor = "rgba(255, 200, 80, 0.6)";
+    ctx.shadowBlur = 30;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = "#f4d67c";
+    ctx.fillText("Sats Miner", width / 2, titleY);
+
+    // Main title
+    ctx.shadowBlur = 0;
+    const titleGrad = ctx.createLinearGradient(0, titleY - 40, 0, titleY + 40);
+    titleGrad.addColorStop(0, "#ffe9b3");
+    titleGrad.addColorStop(0.5, "#f4d67c");
+    titleGrad.addColorStop(1, "#d4a959");
+    ctx.fillStyle = titleGrad;
+    ctx.fillText("Sats Miner", width / 2, titleY);
+
+    // Instruction text with pulsing animation - in darker section
+    const pulseOpacity = Math.sin(this.animTime * 2) * 0.2 + 0.8;
+    ctx.font = "28px 'Segoe UI', Arial, sans-serif";
+    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+    ctx.shadowBlur = 12;
+    ctx.shadowOffsetY = 3;
+    ctx.fillStyle = `rgba(240, 242, 246, ${pulseOpacity})`;
+    ctx.fillText("Press Enter to descend", width / 2, skyHeight + height * 0.25);
+
+    // Down arrow indicator (animated)
+    const arrowY = skyHeight + height * 0.3 + Math.sin(this.animTime * 3) * 5;
+    ctx.strokeStyle = `rgba(240, 242, 246, ${pulseOpacity * 0.8})`;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.beginPath();
+    ctx.moveTo(width / 2 - 12, arrowY);
+    ctx.lineTo(width / 2, arrowY + 12);
+    ctx.lineTo(width / 2 + 12, arrowY);
+    ctx.stroke();
+
+    ctx.restore();
+
+    // Vignette effect for focus
+    const vignetteGrad = ctx.createRadialGradient(
+      width / 2,
+      height / 2,
+      Math.min(width, height) * 0.3,
+      width / 2,
+      height / 2,
+      Math.max(width, height) * 0.8
+    );
+    vignetteGrad.addColorStop(0, "rgba(0, 0, 0, 0)");
+    vignetteGrad.addColorStop(1, "rgba(0, 0, 0, 0.5)");
+    ctx.fillStyle = vignetteGrad;
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  renderChristmasTree(ctx, width, height, skyHeight) {
+    // Australian summer Christmas tree on the hill
+    const treeX = width * 0.75;
+    const treeBaseY = skyHeight * 0.88;
+    const treeHeight = skyHeight * 0.22;
+    const treeWidth = treeHeight * 0.65;
+
+    ctx.save();
+    ctx.translate(treeX, treeBaseY);
+
+    // Tree trunk
+    ctx.fillStyle = "#5c3a2a";
+    ctx.fillRect(-treeWidth * 0.08, 0, treeWidth * 0.16, treeHeight * 0.3);
+
+    // Foliage layers
+    const layers = 4;
+    for (let i = 0; i < layers; i += 1) {
+      const layerHeight = treeHeight * 0.28;
+      const topY = -treeHeight * 0.2 - i * layerHeight * 0.65;
+      const span = treeWidth - i * (treeWidth * 0.2);
+      const grad = ctx.createLinearGradient(-span / 2, topY, span / 2, topY + layerHeight);
+      grad.addColorStop(0, "#1e5a2e");
+      grad.addColorStop(0.5, "#2d7a3f");
+      grad.addColorStop(1, "#1a4a28");
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(0, topY - layerHeight * 0.7);
+      ctx.lineTo(span / 2, topY + layerHeight);
+      ctx.lineTo(-span / 2, topY + layerHeight);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Star on top
+    const starRadius = treeWidth * 0.12;
+    ctx.fillStyle = "#ffd85b";
+    ctx.shadowColor = "rgba(255, 216, 91, 0.8)";
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i += 1) {
+      const angle = (i / 5) * Math.PI * 2 - Math.PI / 2;
+      const outerX = Math.cos(angle) * starRadius;
+      const outerY = -treeHeight * 0.85 + Math.sin(angle) * starRadius;
+      const innerAngle = angle + Math.PI / 5;
+      const innerX = Math.cos(innerAngle) * starRadius * 0.45;
+      const innerY = -treeHeight * 0.85 + Math.sin(innerAngle) * starRadius * 0.45;
+      if (i === 0) {
+        ctx.moveTo(outerX, outerY);
+      } else {
+        ctx.lineTo(outerX, outerY);
+      }
+      ctx.lineTo(innerX, innerY);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.shadowBlur = 0;
+
+    // Ornaments (colorful decorations)
+    const ornamentColors = ["#ff4d4d", "#ffd85b", "#4dc6ff", "#ff69b4"];
+    for (let i = 0; i < 12; i += 1) {
+      const angle = (i / 12) * Math.PI * 2;
+      const layer = Math.floor(i / 3);
+      const radius = treeWidth * (0.25 + layer * 0.08);
+      const ox = Math.cos(angle) * radius;
+      const oy = -treeHeight * 0.25 - layer * treeHeight * 0.15 - Math.abs(Math.sin(angle)) * treeHeight * 0.1;
+
+      // Ornament with shine
+      const ornamentGrad = ctx.createRadialGradient(
+        ox - treeWidth * 0.015,
+        oy - treeWidth * 0.015,
+        0,
+        ox,
+        oy,
+        treeWidth * 0.045
+      );
+      ornamentGrad.addColorStop(0, "rgba(255, 255, 255, 0.8)");
+      ornamentGrad.addColorStop(0.4, ornamentColors[i % ornamentColors.length]);
+      ornamentGrad.addColorStop(1, "#000");
+      ctx.fillStyle = ornamentGrad;
+      ctx.beginPath();
+      ctx.arc(ox, oy, treeWidth * 0.045, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  renderEnhancedWell(ctx, width, height, skyHeight) {
+    const wellX = width * 0.5;
+    const wellY = skyHeight + height * 0.18;
+
+    ctx.save();
+    ctx.translate(wellX, wellY);
+
+    // Animated cable descending into the mine
+    const cableTopY = -120;
+    const cableBottomY = 60;
+    const cableGrad = ctx.createLinearGradient(0, cableTopY, 0, cableBottomY);
+    cableGrad.addColorStop(0, "#9fa5af");
+    cableGrad.addColorStop(1, "#6a7080");
+    ctx.strokeStyle = cableGrad;
+    ctx.lineWidth = 3;
+    ctx.setLineDash([8, 6]);
+    ctx.lineDashOffset = -this.cableOffset;
+    ctx.beginPath();
+    ctx.moveTo(0, cableTopY);
+    ctx.lineTo(0, cableBottomY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.lineDashOffset = 0;
+
+    // Platform with enhanced detail
+    const platformWidth = 70;
+    const platformHeight = 22;
+    const platformGrad = ctx.createLinearGradient(-platformWidth / 2, 0, platformWidth / 2, 0);
+    platformGrad.addColorStop(0, "#35353d");
+    platformGrad.addColorStop(0.25, "#505560");
+    platformGrad.addColorStop(0.5, "#6a7080");
+    platformGrad.addColorStop(0.75, "#8d949f");
+    platformGrad.addColorStop(1, "#454550");
+    ctx.fillStyle = platformGrad;
+    ctx.fillRect(-platformWidth / 2, -platformHeight / 2, platformWidth, platformHeight);
+
+    // Platform outline and rivets
+    ctx.strokeStyle = "#1a1c24";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-platformWidth / 2, -platformHeight / 2, platformWidth, platformHeight);
+
+    // Rivets on platform
+    ctx.fillStyle = "#b0b8c5";
+    const rivetSize = 2.5;
+    for (let i = 0; i < 5; i++) {
+      const rx = -platformWidth / 2 + 10 + i * 12;
+      ctx.beginPath();
+      ctx.arc(rx, -platformHeight / 4, rivetSize, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(rx, platformHeight / 4, rivetSize, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Main mast with gradient
+    const mastHeight = 110;
+    const mastGrad = ctx.createLinearGradient(-8, -mastHeight, 8, 0);
+    mastGrad.addColorStop(0, "#3a4250");
+    mastGrad.addColorStop(0.5, "#4c5563");
+    mastGrad.addColorStop(1, "#35404d");
+    ctx.fillStyle = mastGrad;
+    ctx.fillRect(-8, -mastHeight, 16, mastHeight);
+
+    // Mast highlights
+    ctx.fillStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.fillRect(-7, -mastHeight + 5, 3, mastHeight - 10);
+
+    // Secondary mast extension
+    ctx.fillStyle = "#3d4654";
+    ctx.fillRect(-3, -mastHeight * 1.25, 6, mastHeight * 0.3);
+
+    // Cable supports (structural triangles)
+    ctx.strokeStyle = "#252c36";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(-platformWidth / 2, -platformHeight / 2);
+    ctx.lineTo(-platformWidth / 2 + 10, -platformHeight / 2 - 18);
+    ctx.lineTo(-platformWidth / 2 + 20, -platformHeight / 2);
+    ctx.moveTo(platformWidth / 2, -platformHeight / 2);
+    ctx.lineTo(platformWidth / 2 - 10, -platformHeight / 2 - 18);
+    ctx.lineTo(platformWidth / 2 - 20, -platformHeight / 2);
+    ctx.stroke();
+
+    ctx.restore();
   }
 
   onKeyDown(event) {
