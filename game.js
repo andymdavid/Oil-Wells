@@ -40,7 +40,8 @@ class Level {
     const gridWidth = this.width * this.tileSize;
     const gridHeight = this.height * this.tileSize;
     this.offsetX = Math.max(0, Math.floor((canvasWidth - gridWidth) / 2));
-    this.offsetY = Math.max(0, Math.floor((canvasHeight - gridHeight) / 2));
+    const verticalExtra = Math.max(0, canvasHeight - gridHeight);
+    this.offsetY = verticalExtra;
 
     this.pelletCount = 0;
     this.enemyLaneData = new Map();
@@ -170,17 +171,64 @@ class Level {
 
   render(ctx) {
     const { width, height } = ctx.canvas;
-    const surfaceBand = Math.max(40, this.offsetY * 0.5);
-    const skyGrad = ctx.createLinearGradient(0, 0, 0, surfaceBand);
-    skyGrad.addColorStop(0, "#4f7ecf");
-    skyGrad.addColorStop(0.5, "#f4d879");
-    skyGrad.addColorStop(1, "#c97938");
-    ctx.fillStyle = skyGrad;
-    ctx.fillRect(0, 0, width, surfaceBand);
+    const horizonHeight = Math.max(120, this.offsetY * 0.6);
 
-    ctx.fillStyle = "#2f1f16";
-    ctx.fillRect(0, surfaceBand, width, this.offsetY);
+    // Sky
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, horizonHeight);
+    skyGradient.addColorStop(0, "#0f192f");
+    skyGradient.addColorStop(0.4, "#203a6b");
+    skyGradient.addColorStop(0.75, "#c4a06c");
+    skyGradient.addColorStop(1, "#f6c066");
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, width, horizonHeight);
 
+    // Stylized sun
+    const sunX = width * 0.5;
+    const sunY = horizonHeight * 0.35;
+    const sunRadius = horizonHeight * 0.25;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.2, sunX, sunY, sunRadius);
+    sunGrad.addColorStop(0, "#fff7d2");
+    sunGrad.addColorStop(0.5, "#ffd38a");
+    sunGrad.addColorStop(1, "rgba(255,211,138,0)");
+    ctx.fillStyle = sunGrad;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Above-ground silhouettes
+    ctx.fillStyle = "#41291e";
+    const terrainHeight = horizonHeight * 0.25;
+    ctx.beginPath();
+    ctx.moveTo(0, horizonHeight - terrainHeight);
+    for (let x = 0; x <= width; x += width / 6) {
+      const randomBump = Math.sin((x / width) * Math.PI * 2) * terrainHeight * 0.3;
+      ctx.lineTo(x, horizonHeight - terrainHeight + randomBump);
+    }
+    ctx.lineTo(width, horizonHeight);
+    ctx.lineTo(0, horizonHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    const soilBandGrad = ctx.createLinearGradient(0, horizonHeight - terrainHeight * 0.1, 0, this.offsetY);
+    soilBandGrad.addColorStop(0, "rgba(92,59,43,0)");
+    soilBandGrad.addColorStop(0.5, "rgba(74,46,33,0.35)");
+    soilBandGrad.addColorStop(1, "#241710");
+    ctx.fillStyle = soilBandGrad;
+    ctx.fillRect(0, horizonHeight, width, this.offsetY - horizonHeight);
+
+    // Rolling hill accents
+    ctx.fillStyle = "rgba(0,0,0,0.15)";
+    ctx.beginPath();
+    const hillBaseY = horizonHeight - terrainHeight * 0.2;
+    ctx.moveTo(0, hillBaseY);
+    ctx.quadraticCurveTo(width * 0.2, hillBaseY - terrainHeight * 0.35, width * 0.4, hillBaseY - terrainHeight * 0.1);
+    ctx.quadraticCurveTo(width * 0.6, hillBaseY + terrainHeight * 0.15, width * 0.8, hillBaseY - terrainHeight * 0.05);
+    ctx.lineTo(width, hillBaseY + terrainHeight * 0.2);
+    ctx.lineTo(width, hillBaseY);
+    ctx.closePath();
+    ctx.fill();
+
+    // Underground rock
     const rockGrad = ctx.createLinearGradient(0, this.offsetY, 0, height);
     rockGrad.addColorStop(0, "#1a1412");
     rockGrad.addColorStop(0.5, "#201a18");
@@ -1291,12 +1339,6 @@ class PlayState {
     }
     this.drill.render(ctx);
 
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.font = "14px 'Segoe UI', Arial, sans-serif";
-    ctx.fillStyle = "#ffffff88";
-    ctx.fillText("DEBUG: PLAY STATE", 12, 12);
-
     this.renderHud(ctx);
   }
 
@@ -1350,20 +1392,18 @@ class PlayState {
 
   renderHud(ctx) {
     ctx.save();
-    ctx.fillStyle = "rgba(10,10,10,0.6)";
-    ctx.fillRect(0, 0, this.game.canvas.width, 42);
-
+    const hudCenterY = 28;
     ctx.fillStyle = "#f4f6f8";
     ctx.font = "14px 'Segoe UI', sans-serif";
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
-    ctx.fillText(`Score: ${this.score}`, 20, 21);
+    ctx.fillText(`Score: ${this.score}`, 20, hudCenterY);
 
     ctx.textAlign = "center";
-    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, 21);
+    ctx.fillText(`Pellets: ${this.level.pelletCount}`, this.game.canvas.width / 2, hudCenterY);
 
     ctx.textAlign = "right";
-    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, 21);
+    ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
 
     if (this.levelComplete) {
       ctx.textAlign = "center";
@@ -1456,28 +1496,36 @@ class PlayState {
     const well = this.wellPosition;
     ctx.save();
     ctx.translate(well.x, well.y);
-    ctx.fillStyle = "#d8d4d0";
-    ctx.fillRect(-18, -10, 36, 12);
+    const platformWidth = 60;
+    const platformHeight = 18;
+    const platformGrad = ctx.createLinearGradient(-platformWidth / 2, 0, platformWidth / 2, 0);
+    platformGrad.addColorStop(0, "#403f46");
+    platformGrad.addColorStop(1, "#9f9fab");
+    ctx.fillStyle = platformGrad;
+    ctx.fillRect(-platformWidth / 2, -platformHeight / 2, platformWidth, platformHeight);
 
-    ctx.fillStyle = "#5b5e68";
-    ctx.fillRect(-6, -this.level.tileSize * 0.7, 12, this.level.tileSize * 0.7);
-    ctx.fillRect(-2, -this.level.tileSize * 1.1, 4, this.level.tileSize * 0.4);
+    ctx.strokeStyle = "#1e1f29";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-platformWidth / 2, -platformHeight / 2, platformWidth, platformHeight);
 
-    ctx.strokeStyle = "#262832";
+    const mastHeight = this.level.tileSize * 0.9;
+    ctx.fillStyle = "#4c5563";
+    ctx.fillRect(-6, -mastHeight, 12, mastHeight);
+    ctx.fillRect(-2, -mastHeight * 1.2, 4, mastHeight * 0.3);
+
+    ctx.strokeStyle = "#1f2a33";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(-18, -10);
-    ctx.lineTo(-18, -28);
-    ctx.lineTo(-10, -32);
-    ctx.lineTo(-10, -14);
-    ctx.moveTo(18, -10);
-    ctx.lineTo(18, -30);
-    ctx.lineTo(10, -32);
-    ctx.lineTo(10, -14);
+    ctx.moveTo(-platformWidth / 2, -platformHeight / 2);
+    ctx.lineTo(-platformWidth / 2 + 8, -platformHeight / 2 - 16);
+    ctx.lineTo(-platformWidth / 2 + 16, -platformHeight / 2);
+    ctx.moveTo(platformWidth / 2, -platformHeight / 2);
+    ctx.lineTo(platformWidth / 2 - 8, -platformHeight / 2 - 16);
+    ctx.lineTo(platformWidth / 2 - 16, -platformHeight / 2);
     ctx.stroke();
 
-    ctx.fillStyle = "#d5a742";
-    ctx.fillRect(-22, -14, 44, 6);
+    ctx.fillStyle = "#f0c169";
+    ctx.fillRect(-platformWidth / 2 - 6, -platformHeight / 2 - 10, platformWidth + 12, 8);
     ctx.restore();
   }
 }

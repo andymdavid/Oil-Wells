@@ -13,19 +13,21 @@
         display: flex;
         justify-content: center;
         min-height: 100vh;
-        align-items: center;
+        align-items: flex-start;
+        padding-top: 48px;
       }
       .canvas-wrapper {
         padding: 16px;
         background: #111;
         border-radius: 8px;
         box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
+        margin-top: 24px;
       }
     </style>
   </head>
   <body>
     <div class="canvas-wrapper">
-      <canvas id="gameCanvas" width="960" height="540"></canvas>
+      <canvas id="gameCanvas" width="960" height="720"></canvas>
     </div>
     <script src="game.js"></script>
   </body>
