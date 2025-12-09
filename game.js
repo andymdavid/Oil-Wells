@@ -784,6 +784,7 @@ class Enemy {
     this.type = type;
     this.active = false;
     this.respawnTimer = spawnDelay;
+    this.animTime = Math.random() * Math.PI * 2;
     this.activateIfReady();
   }
 
@@ -823,11 +824,13 @@ class Enemy {
     if (!this.active) {
       this.respawnTimer -= dt;
       this.activateIfReady();
+      this.animTime += dt * 4;
       return;
     }
 
     this.x += this.direction * this.speed * dt;
     this.y = this.spawnPoint.y;
+    this.animTime += dt * (this.type === "01" ? 10 : 3);
 
     if (this.direction > 0 && this.x > this.canvasWidth + this.spawnMargin) {
       this.scheduleRespawn();
@@ -846,74 +849,238 @@ class Enemy {
     }
     ctx.save();
     ctx.translate(this.x, this.y);
+    if (this.type === "01") {
+      const lean = Math.sin(this.animTime * 1.5) * 0.05;
+      ctx.translate(0, Math.sin(this.animTime * 4) * this.radius * 0.15);
+      ctx.rotate(lean);
+    }
     const bodyWidth = this.radius * 1.6;
     const bodyHeight = this.radius * 1.1;
 
     if (this.type === "02") {
-      const segments = 6;
-      const segmentLength = bodyWidth;
-      ctx.strokeStyle = "#581f24";
-      ctx.lineWidth = this.radius * 0.8;
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      ctx.moveTo(-segmentLength * 0.5, 0);
-      ctx.quadraticCurveTo(0, -bodyHeight * 0.4, segmentLength * 0.5, 0);
-      ctx.stroke();
+      const length = bodyWidth * 2.4;
+      const thickness = this.radius * 1.1;
+      const undulate = Math.sin(this.animTime * 2) * this.radius * 0.2;
+      const segmentCount = 7;
+      const segmentSpacing = length / segmentCount;
 
-      ctx.strokeStyle = "#8c3a42";
-      ctx.lineWidth = this.radius * 0.5;
-      ctx.beginPath();
-      ctx.moveTo(-segmentLength * 0.5, 0);
-      ctx.quadraticCurveTo(0, bodyHeight * 0.4, segmentLength * 0.5, 0);
-      ctx.stroke();
-
-      ctx.fillStyle = "#ffe29a";
-      ctx.beginPath();
-      ctx.arc(-segmentLength * 0.6, 0, this.radius * 0.25, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#5c2a2d";
-      ctx.beginPath();
-      ctx.arc(-segmentLength * 0.6, 0, this.radius * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-    } else {
-      const abdomen = bodyWidth * 0.8;
-      const cephalothorax = bodyWidth * 0.5;
-      ctx.fillStyle = "#6a4f4f";
-      ctx.beginPath();
-      ctx.ellipse(0, 0, abdomen, bodyHeight, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#3c2a2a";
-      ctx.beginPath();
-      ctx.ellipse(-abdomen * 0.6, -bodyHeight * 0.2, cephalothorax, bodyHeight * 0.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#f8f8f8";
-      ctx.beginPath();
-      ctx.arc(-abdomen * 0.8, -bodyHeight * 0.35, this.radius * 0.2, 0, Math.PI * 2);
-      ctx.arc(-abdomen * 0.45, -bodyHeight * 0.35, this.radius * 0.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#111";
-      ctx.beginPath();
-      ctx.arc(-abdomen * 0.8, -bodyHeight * 0.35, this.radius * 0.1, 0, Math.PI * 2);
-      ctx.arc(-abdomen * 0.45, -bodyHeight * 0.35, this.radius * 0.1, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = "#3f2d2d";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      const legLength = abdomen * 0.9;
-      for (let i = -1; i <= 1; i += 0.5) {
-        ctx.moveTo(0, bodyHeight * 0.4 * i);
-        ctx.lineTo(legLength * 0.5, bodyHeight * 0.8 * i);
-        ctx.moveTo(0, bodyHeight * 0.4 * i);
-        ctx.lineTo(-legLength * 0.5, bodyHeight * 0.8 * i);
+      // Body path with subtle undulation
+      ctx.save();
+      ctx.translate(-length * 0.3, 0);
+      const bodyPath = new Path2D();
+      bodyPath.moveTo(0, 0);
+      for (let i = 1; i <= segmentCount; i += 1) {
+        const t = i / segmentCount;
+        const sway = Math.sin(this.animTime * 2 + t * Math.PI * 1.5) * this.radius * 0.2;
+        const x = i * segmentSpacing;
+        const y = sway;
+        bodyPath.lineTo(x, y);
       }
+      const grad = ctx.createLinearGradient(0, -thickness, segmentCount * segmentSpacing, thickness);
+      grad.addColorStop(0, "#2d1011");
+      grad.addColorStop(0.4, "#5f2024");
+      grad.addColorStop(0.7, "#8c332c");
+      grad.addColorStop(1, "#21090a");
+      ctx.strokeStyle = grad;
+      ctx.lineCap = "round";
+      ctx.lineJoin = "round";
+      ctx.lineWidth = thickness * 1.6;
+      ctx.stroke(bodyPath);
+
+      const topHighlight = ctx.createLinearGradient(0, -thickness, 0, thickness);
+      topHighlight.addColorStop(0, "rgba(255,220,200,0.45)");
+      topHighlight.addColorStop(0.5, "rgba(255,255,255,0)");
+      ctx.strokeStyle = topHighlight;
+      ctx.lineWidth = thickness * 0.5;
+      ctx.stroke(bodyPath);
+
+      // Segment ridges
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.lineWidth = 2;
+      for (let i = 0; i <= segmentCount; i += 1) {
+        const t = i / segmentCount;
+        const x = i * segmentSpacing;
+        const sway = Math.sin(this.animTime * 2 + t * Math.PI * 1.5) * this.radius * 0.2;
+        ctx.beginPath();
+        ctx.moveTo(x, sway - thickness * 0.9);
+        ctx.lineTo(x, sway + thickness * 0.9);
+        ctx.stroke();
+      }
+
+      // Head with mandibles
+      const headX = segmentSpacing * 0.6;
+      const headY = Math.sin(this.animTime * 2 + 0.1) * this.radius * 0.2;
+      const headRadius = thickness * 0.9;
+      const headGrad = ctx.createRadialGradient(
+        headX - headRadius * 0.2,
+        headY - headRadius * 0.2,
+        headRadius * 0.2,
+        headX,
+        headY,
+        headRadius
+      );
+      headGrad.addColorStop(0, "#ffd89f");
+      headGrad.addColorStop(0.4, "#f7a24c");
+      headGrad.addColorStop(1, "#5e1f19");
+      ctx.fillStyle = headGrad;
+      ctx.beginPath();
+      ctx.ellipse(headX, headY, headRadius * 1.1, headRadius * 0.9, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = "#1b0806";
+      ctx.beginPath();
+      ctx.arc(headX + headRadius * 0.2, headY - headRadius * 0.2, headRadius * 0.25, 0, Math.PI * 2);
+      ctx.arc(headX + headRadius * 0.5, headY + headRadius * 0.1, headRadius * 0.22, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.strokeStyle = "#ffdba6";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(headX + headRadius * 0.6, headY + headRadius * 0.3);
+      ctx.quadraticCurveTo(headX + headRadius * 1.1, headY + headRadius * 0.6, headX + headRadius * 1.3, headY + headRadius * 0.2);
+      ctx.moveTo(headX + headRadius * 0.6, headY - headRadius * 0.3);
+      ctx.quadraticCurveTo(headX + headRadius * 1.1, headY - headRadius * 0.6, headX + headRadius * 1.3, headY - headRadius * 0.2);
+      ctx.stroke();
+
+      ctx.restore();
+    } else {
+      const abdomenRadius = bodyWidth * 0.85;
+      const abdomenHeight = bodyHeight * 1.25;
+      const thoraxRadius = bodyWidth * 0.55;
+      const thoraxHeight = bodyHeight * 0.85;
+      const headRadius = bodyWidth * 0.35;
+      const headHeight = bodyHeight * 0.55;
+
+      // Spidery articulated legs (four pairs)
+      const legGradient = ctx.createLinearGradient(-abdomenRadius, 0, abdomenRadius, 0);
+      legGradient.addColorStop(0, "#0e0506");
+      legGradient.addColorStop(0.5, "#1d0c0f");
+      legGradient.addColorStop(1, "#0b0405");
+      ctx.strokeStyle = legGradient;
+      ctx.lineCap = "round";
+      const legPairs = 4;
+      for (let pair = 0; pair < legPairs; pair += 1) {
+        const normalized = pair / (legPairs - 1);
+        const spread = (normalized - 0.5) * abdomenHeight * 0.9;
+        const thickness = 4 - normalized * 1.5;
+        const phase = Math.sin(this.animTime * 8 + normalized * Math.PI * 0.9);
+        const lift = phase * this.radius * 0.3;
+        ctx.lineWidth = thickness;
+
+        const leftAnchors = [
+          { x: -thoraxRadius * 0.2, y: spread - lift * 0.1 },
+          {
+            x: -thoraxRadius - bodyWidth * (0.2 + normalized * 0.2),
+            y: spread - bodyHeight * (0.25 + normalized * 0.15) - lift,
+          },
+          {
+            x: -thoraxRadius - bodyWidth * (0.65 + normalized * 0.4),
+            y: spread - bodyHeight * (0.05 + normalized * 0.15) - lift * 0.6,
+          },
+        ];
+
+        ctx.beginPath();
+        ctx.moveTo(leftAnchors[0].x, leftAnchors[0].y);
+        ctx.quadraticCurveTo(leftAnchors[1].x, leftAnchors[1].y, leftAnchors[2].x, leftAnchors[2].y);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.moveTo(-leftAnchors[0].x, leftAnchors[0].y);
+        ctx.quadraticCurveTo(-leftAnchors[1].x, leftAnchors[1].y, -leftAnchors[2].x, leftAnchors[2].y);
+        ctx.stroke();
+      }
+
+      // Abdomen
+      const abdomenGrad = ctx.createRadialGradient(
+        -abdomenRadius * 0.2,
+        -abdomenHeight * 0.2,
+        abdomenRadius * 0.3,
+        0,
+        0,
+        abdomenRadius * 1.1
+      );
+      abdomenGrad.addColorStop(0, "#2c1517");
+      abdomenGrad.addColorStop(0.4, "#18090c");
+      abdomenGrad.addColorStop(1, "#090304");
+      ctx.fillStyle = abdomenGrad;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, abdomenRadius, abdomenHeight, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Cephalothorax
+      const thoraxGrad = ctx.createLinearGradient(-thoraxRadius, -thoraxHeight, thoraxRadius, thoraxHeight);
+      thoraxGrad.addColorStop(0, "#422024");
+      thoraxGrad.addColorStop(0.5, "#6b2d2d");
+      thoraxGrad.addColorStop(1, "#1e0c0f");
+      ctx.fillStyle = thoraxGrad;
+      ctx.beginPath();
+      ctx.ellipse(-abdomenRadius * 0.55, -bodyHeight * 0.1, thoraxRadius, thoraxHeight, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Head
+      const headGrad = ctx.createLinearGradient(-headRadius, -headHeight, headRadius, headHeight);
+      headGrad.addColorStop(0, "#6f362d");
+      headGrad.addColorStop(1, "#1b0a0c");
+      ctx.fillStyle = headGrad;
+      ctx.beginPath();
+      ctx.ellipse(-abdomenRadius * 0.95, -bodyHeight * 0.05, headRadius, headHeight, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Eye cluster (8 eyes)
+      const eyePositions = [];
+      const smallRingRadius = this.radius * 0.1;
+      for (let i = 0; i < 4; i += 1) {
+        const offsetY = -headHeight * 0.35 + i * headHeight * 0.25;
+        eyePositions.push([-abdomenRadius * 1.05, offsetY]);
+        eyePositions.push([-abdomenRadius * 0.85, offsetY]);
+      }
+      for (const [ex, ey] of eyePositions) {
+        const eyeGrad = ctx.createRadialGradient(ex, ey, 0, ex, ey, smallRingRadius * 1.2);
+        eyeGrad.addColorStop(0, "#ffffff");
+        eyeGrad.addColorStop(1, "#f6bb46");
+        ctx.fillStyle = eyeGrad;
+        ctx.beginPath();
+        ctx.arc(ex, ey, smallRingRadius * 1.2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#120405";
+        ctx.beginPath();
+        ctx.arc(ex - smallRingRadius * 0.2, ey - smallRingRadius * 0.1, smallRingRadius * 0.6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Fangs / pedipalps (mirrored pairs)
+      ctx.strokeStyle = "#f1b05d";
+      ctx.lineWidth = 2;
+      const fangOffsets = [
+        { start: { x: -abdomenRadius * 0.65, y: bodyHeight * 0.2 }, ctrl: { x: -abdomenRadius * 0.9, y: bodyHeight * 0.55 }, end: { x: -abdomenRadius * 0.35, y: bodyHeight * 0.65 } },
+        { start: { x: -abdomenRadius * 0.45, y: bodyHeight * 0.15 }, ctrl: { x: -abdomenRadius * 0.75, y: bodyHeight * 0.5 }, end: { x: -abdomenRadius * 0.15, y: bodyHeight * 0.58 } },
+        { start: { x: -abdomenRadius * 0.65, y: bodyHeight * 0.05 }, ctrl: { x: -abdomenRadius * 0.9, y: bodyHeight * 0.35 }, end: { x: -abdomenRadius * 0.35, y: bodyHeight * 0.45 } },
+        { start: { x: -abdomenRadius * 0.45, y: 0 }, ctrl: { x: -abdomenRadius * 0.75, y: bodyHeight * 0.3 }, end: { x: -abdomenRadius * 0.15, y: bodyHeight * 0.38 } },
+      ];
+      for (const fang of fangOffsets) {
+        ctx.beginPath();
+        ctx.moveTo(fang.start.x, fang.start.y);
+        ctx.quadraticCurveTo(fang.ctrl.x, fang.ctrl.y, fang.end.x, fang.end.y);
+        ctx.moveTo(-fang.start.x, fang.start.y);
+        ctx.quadraticCurveTo(-fang.ctrl.x, fang.ctrl.y, -fang.end.x, fang.end.y);
+        ctx.stroke();
+      }
+
+      // Abdomen highlight and pattern
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(-abdomenRadius * 0.2, -abdomenHeight * 0.55);
+      ctx.quadraticCurveTo(abdomenRadius * 0.15, -abdomenHeight * 0.85, abdomenRadius * 0.35, -abdomenHeight * 0.25);
+      ctx.stroke();
+
+      ctx.strokeStyle = "rgba(255,90,70,0.3)";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-abdomenRadius * 0.1, -abdomenHeight * 0.25);
+      ctx.quadraticCurveTo(0, abdomenHeight * 0.05, -abdomenRadius * 0.05, abdomenHeight * 0.35);
       ctx.stroke();
     }
-    ctx.fillStyle = "#fff";
-    ctx.font = "10px 'Segoe UI', sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(this.type, 0, -this.radius * 1.4);
     ctx.restore();
   }
 }
