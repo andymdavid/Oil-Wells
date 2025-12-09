@@ -1419,15 +1419,69 @@ class MenuState {
 
   render(ctx) {
     const { width, height } = this.game.canvas;
-    ctx.fillStyle = "#f5f5f5";
+    const skyHeight = height * 0.5;
+    const skyGradient = ctx.createLinearGradient(0, 0, 0, skyHeight);
+    skyGradient.addColorStop(0, "#05070f");
+    skyGradient.addColorStop(0.4, "#0f1e34");
+    skyGradient.addColorStop(0.8, "#d59c57");
+    ctx.fillStyle = skyGradient;
+    ctx.fillRect(0, 0, width, skyHeight);
+
+    const sunX = width * 0.5;
+    const sunY = skyHeight * 0.35;
+    const sunRadius = skyHeight * 0.18;
+    const sunGrad = ctx.createRadialGradient(sunX, sunY, sunRadius * 0.2, sunX, sunY, sunRadius);
+    sunGrad.addColorStop(0, "#fffad2");
+    sunGrad.addColorStop(1, "rgba(255,210,120,0)");
+    ctx.fillStyle = sunGrad;
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, sunRadius, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#513320";
+    ctx.beginPath();
+    ctx.moveTo(0, skyHeight * 0.8);
+    ctx.quadraticCurveTo(width * 0.2, skyHeight * 0.6, width * 0.45, skyHeight * 0.75);
+    ctx.quadraticCurveTo(width * 0.7, skyHeight * 0.9, width, skyHeight * 0.7);
+    ctx.lineTo(width, skyHeight);
+    ctx.lineTo(0, skyHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    const soilGrad = ctx.createLinearGradient(0, skyHeight, 0, height);
+    soilGrad.addColorStop(0, "#2a1a12");
+    soilGrad.addColorStop(1, "#0f0906");
+    ctx.fillStyle = soilGrad;
+    ctx.fillRect(0, skyHeight, width, height - skyHeight);
+
+    ctx.fillStyle = "rgba(255,255,255,0.04)";
+    for (let i = 0; i < 6; i += 1) {
+      const angle = (i / 6) * Math.PI * 2;
+      const radius = width * 0.4;
+      ctx.beginPath();
+      ctx.arc(width * 0.5, height, radius + i * 40, angle - 0.2, angle + 0.2);
+      ctx.stroke();
+    }
+
+    ctx.save();
+    ctx.translate(width * 0.5, skyHeight + height * 0.18);
+    ctx.fillStyle = "#5c6675";
+    ctx.fillRect(-12, -80, 24, 80);
+    ctx.fillStyle = "#dda94b";
+    ctx.fillRect(-40, -90, 80, 14);
+    ctx.fillStyle = "#272c35";
+    ctx.fillRect(-8, -40, 16, -40);
+    ctx.restore();
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    ctx.font = "72px 'Segoe UI', Arial, sans-serif";
+    ctx.fillStyle = "#f4d67c";
+    ctx.fillText("Sats Miner", width / 2, height * 0.55);
 
-    ctx.font = "36px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText("Oil's Well Remake", width / 2, height / 2 - 30);
-
-    ctx.font = "22px 'Segoe UI', Arial, sans-serif";
-    ctx.fillText("Press Enter to Start", width / 2, height / 2 + 20);
+    ctx.font = "24px 'Segoe UI', Arial, sans-serif";
+    ctx.fillStyle = "#f0f2f6";
+    ctx.fillText("Press Enter to descend", width / 2, height * 0.65);
   }
 
   onKeyDown(event) {
@@ -1444,6 +1498,9 @@ class PlayState {
     this.score = 0;
     this.levelComplete = false;
     this.lives = 3;
+    this.levelTimeLimit = 150;
+    this.remainingTime = this.levelTimeLimit;
+    this.timeExpired = false;
     this.startTile = this.level.getEntryTile();
     this.wellPosition = this.level.getWellPosition();
     this.drill = this.createDrill();
@@ -1487,6 +1544,14 @@ class PlayState {
   }
 
   update(dt) {
+    if (!this.levelComplete) {
+      this.remainingTime = Math.max(0, this.remainingTime - dt);
+      if (this.remainingTime <= 0 && !this.timeExpired) {
+        this.timeExpired = true;
+        this.handleLifeLost();
+        return;
+      }
+    }
     this.level.update(dt);
     this.drill.update(dt);
     for (const enemy of this.enemies) {
@@ -1565,6 +1630,26 @@ class PlayState {
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
     ctx.fillText(`Score: ${this.score}`, 20, hudCenterY);
+
+    const time = Math.max(0, this.remainingTime);
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60)
+      .toString()
+      .padStart(2, "0");
+    ctx.textAlign = "center";
+    const timeColor = time < 30 ? "#ff6868" : "#111";
+    ctx.fillStyle = timeColor;
+    ctx.font = "bold 16px 'Segoe UI', sans-serif";
+    ctx.fillText(`Time: ${minutes}:${seconds}`, this.game.canvas.width / 2, hudCenterY);
+    ctx.font = "14px 'Segoe UI', sans-serif";
+    ctx.fillStyle = "#f4f6f8";
+
+    ctx.font = "12px 'Segoe UI', sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#f4f6f8aa";
+    ctx.fillText("Arrows: move  |  Space: retract", 20, hudCenterY + 18);
+    ctx.font = "14px 'Segoe UI', sans-serif";
+    ctx.fillStyle = "#f4f6f8";
 
     ctx.textAlign = "right";
     ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
