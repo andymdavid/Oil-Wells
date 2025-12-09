@@ -183,7 +183,7 @@ class Level {
 
     ctx.save();
     ctx.lineJoin = "round";
-    const tunnelInset = Math.max(2, this.tileSize * 0.1);
+    const tunnelInset = -Math.max(2, this.tileSize * 0.08);
     for (let y = 0; y < this.height; y += 1) {
       for (let x = 0; x < this.width; x += 1) {
         const tile = this.tiles[y][x];
@@ -208,9 +208,8 @@ class Level {
         tunnelGrad.addColorStop(1, "#2e241e");
         ctx.fillStyle = tunnelGrad;
         ctx.fill(path);
-        ctx.strokeStyle = "rgba(0,0,0,0.35)";
-        ctx.lineWidth = 2;
-        ctx.stroke(path);
+        ctx.fillStyle = "rgba(255,255,255,0.08)";
+        ctx.fillRect(rx, ry, tunnelWidth, 2);
 
         if (tile === "O") {
           const cx = px + this.tileSize / 2;
@@ -262,6 +261,9 @@ class Drill {
     this.isRetracting = false;
     this.retractSpeed = this.speed * 2;
     this.facingAngle = Math.PI / 2;
+    this.lastForwardX = 0;
+    this.lastForwardY = 0;
+    this.tileTrail = [];
   }
 
   setDirection(dx, dy) {
@@ -286,6 +288,8 @@ class Drill {
     this.intentDirX = 0;
     this.intentDirY = 0;
     this.destinationTile = null;
+    this.lastForwardX = 0;
+    this.lastForwardY = 0;
     this.updateHeadPipePoint();
   }
 
@@ -334,6 +338,9 @@ class Drill {
       this.syncCurrentTile();
       this.currentTileX = this.entryTile.x;
       this.currentTileY = this.entryTile.y;
+      this.lastForwardX = 0;
+      this.lastForwardY = 0;
+      this.tileTrail = [];
       this.isRetracting = false;
       return;
     }
@@ -350,12 +357,18 @@ class Drill {
       this.x = target.x;
       this.y = target.y;
       this.pipePoints.pop();
+      if (this.tileTrail.length > 0) {
+        this.tileTrail.pop();
+      }
       this.updateHeadPipePoint();
       this.syncCurrentTile();
       if (this.pipePoints.length === 1) {
         this.isRetracting = false;
         this.currentTileX = this.entryTile.x;
         this.currentTileY = this.entryTile.y;
+        this.lastForwardX = 0;
+        this.lastForwardY = 0;
+        this.tileTrail = [];
       }
       return;
     }
@@ -393,6 +406,13 @@ class Drill {
     this.currentTileX = tileX;
     this.currentTileY = tileY;
     const center = this.level.tileToPixelCenter(tileX, tileY);
+    if (
+      !this.tileTrail.length ||
+      this.tileTrail[this.tileTrail.length - 1].x !== tileX ||
+      this.tileTrail[this.tileTrail.length - 1].y !== tileY
+    ) {
+      this.tileTrail.push({ x: tileX, y: tileY });
+    }
     if (this.pipePoints.length === 0) {
       this.pipePoints.push(center);
       this.pipePoints.push({ x: this.x, y: this.y });
@@ -464,6 +484,8 @@ class Drill {
       this.pendingDirX = 0;
       this.pendingDirY = 0;
       this.updateFacingFromVector(0, 1);
+      this.lastForwardX = 0;
+      this.lastForwardY = 1;
     }
   }
 
@@ -504,16 +526,32 @@ class Drill {
     if (this.destinationTile) {
       return false;
     }
+    if (
+      this.lastForwardX === -dx &&
+      this.lastForwardY === -dy &&
+      (this.lastForwardX !== 0 || this.lastForwardY !== 0)
+    ) {
+      return false;
+    }
     const targetTileX = this.currentTileX + dx;
     const targetTileY = this.currentTileY + dy;
     const tile = this.level.getTile(targetTileX, targetTileY);
     if (!tile || !this.level.isTunnelTile(tile)) {
       return false;
     }
+    if (
+      this.tileTrail.some(
+        (node) => node.x === targetTileX && node.y === targetTileY
+      )
+    ) {
+      return false;
+    }
     this.dirX = dx;
     this.dirY = dy;
     this.destinationTile = { x: targetTileX, y: targetTileY };
     this.updateFacingFromVector(dx, dy);
+    this.lastForwardX = dx;
+    this.lastForwardY = dy;
     return true;
   }
 
