@@ -5,6 +5,298 @@ let lastTime = 0;
 const LEVEL_COMPLETE_BONUS = 1000;
 
 /**
+ * Sound Manager - Handles all audio using Web Audio API
+ */
+class SoundManager {
+  constructor() {
+    this.audioContext = null;
+    this.muted = false;
+    this.masterGain = null;
+    this.drillLoopNode = null;
+    this.drillLoopGain = null;
+    this.initAudio();
+  }
+
+  initAudio() {
+    try {
+      this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      this.masterGain = this.audioContext.createGain();
+      this.masterGain.connect(this.audioContext.destination);
+      this.masterGain.gain.value = 0.3; // Master volume at 30%
+    } catch (e) {
+      console.warn("Web Audio API not supported:", e);
+    }
+  }
+
+  toggleMute() {
+    this.muted = !this.muted;
+    if (this.masterGain) {
+      this.masterGain.gain.value = this.muted ? 0 : 0.3;
+    }
+    return this.muted;
+  }
+
+  // Drill extending sound (mechanical whirring)
+  playDrillExtend() {
+    if (!this.audioContext || this.muted) return;
+
+    // Start looping drill sound if not already playing
+    if (!this.drillLoopNode) {
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      const filter = this.audioContext.createBiquadFilter();
+
+      osc.type = "sawtooth";
+      osc.frequency.value = 80;
+      filter.type = "lowpass";
+      filter.frequency.value = 400;
+      filter.Q.value = 5;
+
+      gain.gain.value = 0;
+      gain.gain.linearRampToValueAtTime(0.08, this.audioContext.currentTime + 0.05);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start();
+      this.drillLoopNode = osc;
+      this.drillLoopGain = gain;
+    }
+  }
+
+  // Stop drill sound
+  stopDrillExtend() {
+    if (this.drillLoopNode) {
+      const now = this.audioContext.currentTime;
+      this.drillLoopGain.gain.linearRampToValueAtTime(0, now + 0.1);
+      setTimeout(() => {
+        if (this.drillLoopNode) {
+          this.drillLoopNode.stop();
+          this.drillLoopNode = null;
+          this.drillLoopGain = null;
+        }
+      }, 150);
+    }
+  }
+
+  // Drill retracting (fast whoosh)
+  playDrillRetract() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(200, now + 0.15);
+
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.15);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.15);
+  }
+
+  // Collecting sats (coin pickup)
+  playCoinCollect() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(800, now);
+    osc.frequency.exponentialRampToValueAtTime(1200, now + 0.1);
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+
+  // Level complete (triumphant)
+  playLevelComplete() {
+    if (!this.audioContext || this.muted) return;
+
+    const now = this.audioContext.currentTime;
+    const notes = [523.25, 659.25, 783.99, 1046.50]; // C, E, G, C
+
+    notes.forEach((freq, i) => {
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      const startTime = now + i * 0.15;
+
+      osc.type = "sine";
+      osc.frequency.value = freq;
+
+      gain.gain.setValueAtTime(0.15, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.01, startTime + 0.3);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(startTime);
+      osc.stop(startTime + 0.3);
+    });
+  }
+
+  // Enemy destroyed (crunch)
+  playEnemyDestroyed() {
+    if (!this.audioContext || this.muted) return;
+
+    const noise = this.audioContext.createBufferSource();
+    const buffer = this.audioContext.createBuffer(1, this.audioContext.sampleRate * 0.1, this.audioContext.sampleRate);
+    const data = buffer.getChannelData(0);
+
+    for (let i = 0; i < data.length; i++) {
+      data[i] = Math.random() * 2 - 1;
+    }
+
+    noise.buffer = buffer;
+
+    const filter = this.audioContext.createBiquadFilter();
+    filter.type = "lowpass";
+    filter.frequency.value = 800;
+
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    noise.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.masterGain);
+
+    noise.start(now);
+  }
+
+  // Enemy hits pipe (metallic crack)
+  playPipeHit() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "triangle";
+    osc.frequency.setValueAtTime(250, now);
+    osc.frequency.exponentialRampToValueAtTime(50, now + 0.2);
+
+    gain.gain.setValueAtTime(0.25, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.2);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.2);
+  }
+
+  // Lose a life (dramatic descending)
+  playLifeLost() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "sawtooth";
+    osc.frequency.setValueAtTime(400, now);
+    osc.frequency.exponentialRampToValueAtTime(100, now + 0.5);
+
+    gain.gain.setValueAtTime(0.2, now);
+    gain.gain.linearRampToValueAtTime(0, now + 0.5);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.5);
+  }
+
+  // Game over (somber)
+  playGameOver() {
+    if (!this.audioContext || this.muted) return;
+
+    const now = this.audioContext.currentTime;
+    const notes = [392, 349.23, 293.66, 261.63]; // G, F, D, C (descending)
+
+    notes.forEach((freq, i) => {
+      const osc = this.audioContext.createOscillator();
+      const gain = this.audioContext.createGain();
+      const startTime = now + i * 0.2;
+
+      osc.type = "sine";
+      osc.frequency.value = freq;
+
+      gain.gain.setValueAtTime(0.12, startTime);
+      gain.gain.linearRampToValueAtTime(0, startTime + 0.4);
+
+      osc.connect(gain);
+      gain.connect(this.masterGain);
+
+      osc.start(startTime);
+      osc.stop(startTime + 0.4);
+    });
+  }
+
+  // Menu select (click)
+  playMenuSelect() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "sine";
+    osc.frequency.value = 600;
+
+    gain.gain.setValueAtTime(0.1, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.05);
+  }
+
+  // Time warning (tense pulse)
+  playTimeWarning() {
+    if (!this.audioContext || this.muted) return;
+
+    const osc = this.audioContext.createOscillator();
+    const gain = this.audioContext.createGain();
+    const now = this.audioContext.currentTime;
+
+    osc.type = "sine";
+    osc.frequency.value = 440;
+
+    gain.gain.setValueAtTime(0.08, now);
+    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
+
+    osc.connect(gain);
+    gain.connect(this.masterGain);
+
+    osc.start(now);
+    osc.stop(now + 0.1);
+  }
+}
+
+// Global sound manager instance
+const soundManager = new SoundManager();
+
+/**
  * A GameState should implement:
  * - update(dt)
  * - render(ctx)
@@ -498,6 +790,8 @@ class Drill {
     this.lastForwardX = 0;
     this.lastForwardY = 0;
     this.updateHeadPipePoint();
+    soundManager.stopDrillExtend();
+    soundManager.playDrillRetract();
   }
 
   stopRetract() {
@@ -782,6 +1076,7 @@ class Drill {
     this.updateFacingFromVector(dx, dy);
     this.lastForwardX = dx;
     this.lastForwardY = dy;
+    soundManager.playDrillExtend();
     return true;
   }
 
@@ -806,8 +1101,9 @@ class Drill {
       this.destinationTile = null;
       this.dirX = 0;
       this.dirY = 0;
-      if (!this.tryApplyPendingDirection()) {
-        this.tryContinueForward();
+      const continuing = this.tryApplyPendingDirection() || this.tryContinueForward();
+      if (!continuing) {
+        soundManager.stopDrillExtend();
       }
       return;
     }
@@ -1867,7 +2163,10 @@ class MenuState {
 
   onKeyDown(event) {
     if (event.key === "Enter") {
+      soundManager.playMenuSelect();
       this.game.setState(new PlayState(this.game));
+    } else if (event.key === "m" || event.key === "M") {
+      soundManager.toggleMute();
     }
   }
 }
@@ -1882,6 +2181,7 @@ class PlayState {
     this.levelTimeLimit = 150;
     this.remainingTime = this.levelTimeLimit;
     this.timeExpired = false;
+    this.lastWarningTime = 0;
     this.startTile = this.level.getEntryTile();
     this.wellPosition = this.level.getWellPosition();
     this.drill = this.createDrill();
@@ -1927,6 +2227,16 @@ class PlayState {
   update(dt) {
     if (!this.levelComplete) {
       this.remainingTime = Math.max(0, this.remainingTime - dt);
+
+      // Play warning sound when time < 30 seconds (every second)
+      if (this.remainingTime < 30 && this.remainingTime > 0) {
+        const currentSecond = Math.floor(this.remainingTime);
+        if (currentSecond !== this.lastWarningTime) {
+          this.lastWarningTime = currentSecond;
+          soundManager.playTimeWarning();
+        }
+      }
+
       if (this.remainingTime <= 0 && !this.timeExpired) {
         this.timeExpired = true;
         this.handleLifeLost();
@@ -1957,6 +2267,13 @@ class PlayState {
 
   onKeyDown(event) {
     let handled = false;
+
+    // M key to toggle mute (global across all states)
+    if (event.key === "m" || event.key === "M") {
+      soundManager.toggleMute();
+      handled = true;
+    }
+
     switch (event.key) {
       case "ArrowUp":
         this.drill.setDirection(0, -1);
@@ -1997,9 +2314,11 @@ class PlayState {
 
   handlePelletCollected() {
     this.score += 50;
+    soundManager.playCoinCollect();
     if (!this.levelComplete && this.level.pelletCount === 0) {
       this.levelComplete = true;
       this.score += LEVEL_COMPLETE_BONUS;
+      soundManager.playLevelComplete();
     }
   }
 
@@ -2028,12 +2347,18 @@ class PlayState {
     ctx.font = "12px 'Segoe UI', sans-serif";
     ctx.textAlign = "left";
     ctx.fillStyle = "#f4f6f8aa";
-    ctx.fillText("Arrows: move  |  Space: retract", 20, hudCenterY + 18);
+    ctx.fillText("Arrows: move  |  Space: retract  |  M: mute", 20, hudCenterY + 18);
     ctx.font = "14px 'Segoe UI', sans-serif";
     ctx.fillStyle = "#f4f6f8";
 
     ctx.textAlign = "right";
     ctx.fillText(`Lives: ${this.lives}`, this.game.canvas.width - 20, hudCenterY);
+
+    // Mute indicator
+    if (soundManager.muted) {
+      ctx.fillStyle = "#ff6868";
+      ctx.fillText("🔇 MUTED", this.game.canvas.width - 20, hudCenterY + 18);
+    }
 
     if (this.levelComplete) {
       ctx.textAlign = "center";
@@ -2074,15 +2399,18 @@ class PlayState {
       }
       if (this.drill.collidesWithHead(enemy.x, enemy.y, enemy.radius)) {
         if (enemy.type === "02") {
+          soundManager.playPipeHit();
           this.handleLifeLost();
           return true;
         }
         this.score += 10;
+        soundManager.playEnemyDestroyed();
         enemy.handleDestroyed();
         continue;
       }
 
       if (this.enemyHitsPipe(enemy)) {
+        soundManager.playPipeHit();
         this.handleLifeLost();
         return true;
       }
@@ -2113,6 +2441,8 @@ class PlayState {
     if (this.lives <= 0) {
       return;
     }
+    soundManager.playLifeLost();
+    soundManager.stopDrillExtend();
     this.lives -= 1;
     if (this.lives <= 0) {
       this.game.setState(new GameOverState(this.game, this.score));
@@ -2164,6 +2494,7 @@ class GameOverState {
   constructor(game, finalScore) {
     this.game = game;
     this.finalScore = finalScore;
+    soundManager.playGameOver();
   }
 
   update(dt) {}
@@ -2191,7 +2522,10 @@ class GameOverState {
 
   onKeyDown(event) {
     if (event.key === "Enter") {
+      soundManager.playMenuSelect();
       this.game.setState(new MenuState(this.game));
+    } else if (event.key === "m" || event.key === "M") {
+      soundManager.toggleMute();
     }
   }
 }
